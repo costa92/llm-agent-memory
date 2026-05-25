@@ -5,7 +5,7 @@
 // The root package is a documentation anchor only: it exports no
 // symbols. Callers import the subpackage:
 //
-//     import "github.com/costa92/llm-agent-memory/memory"
+//	import "github.com/costa92/llm-agent-memory/memory"
 //
 // The subpackage adds three additive capabilities on top of
 // github.com/costa92/llm-agent/memory without modifying core:
