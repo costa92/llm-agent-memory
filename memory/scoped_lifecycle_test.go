@@ -56,3 +56,42 @@ func TestScopedLifecycle_ConsolidateScoped_OnlyPromotesMatchingScope(t *testing.
 		t.Errorf("promoted content = %q, want %q", epi[0].Content, "alice note")
 	}
 }
+
+func TestScopedLifecycle_ConsolidateScoped_DoesNotPromoteOtherScope(t *testing.T) {
+	sm := newCoreScopedManager(t)
+	slm, err := NewScopedLifecycleManager(sm)
+	if err != nil {
+		t.Fatalf("NewScopedLifecycleManager: %v", err)
+	}
+
+	scopeA := coremem.Scope{User: "alice"}
+	scopeB := coremem.Scope{User: "bob"}
+
+	ctxA := coremem.WithScope(context.Background(), scopeA)
+	ctxB := coremem.WithScope(context.Background(), scopeB)
+
+	if _, err := sm.Add(ctxA, coremem.KindWorking, coremem.MemoryItem{Content: "a", Importance: 0.9}); err != nil {
+		t.Fatalf("alice Add: %v", err)
+	}
+	if _, err := sm.Add(ctxB, coremem.KindWorking, coremem.MemoryItem{Content: "b", Importance: 0.9}); err != nil {
+		t.Fatalf("bob Add: %v", err)
+	}
+
+	// Bob runs ConsolidateScoped. Alice's item must NOT be promoted.
+	n, err := slm.ConsolidateScoped(ctxB, coremem.ConsolidateOptions{Threshold: 0.7})
+	if err != nil {
+		t.Fatalf("ConsolidateScoped: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("promoted = %d, want 1 (only bob)", n)
+	}
+
+	pages, _ := sm.Inner().ListAll(context.Background(), coremem.ListFilter{}, 100, nil)
+	epi := pages[coremem.KindEpisodic].Items
+	if len(epi) != 1 {
+		t.Fatalf("episodic count = %d, want 1", len(epi))
+	}
+	if epi[0].Content != "b" {
+		t.Errorf("episodic content = %q, want %q (alice leak!)", epi[0].Content, "b")
+	}
+}
