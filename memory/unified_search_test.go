@@ -90,3 +90,35 @@ func TestUnifiedSearcher_DedupesByIDAndContent(t *testing.T) {
 		t.Errorf("dup count = %d, want 1 (got results: %v)", dupCount, contentsOf(results))
 	}
 }
+
+func TestUnifiedSearcher_SortsByScoreDescending(t *testing.T) {
+	mgr := newCoreManager(t)
+	u, err := NewUnifiedSearcher(mgr)
+	if err != nil {
+		t.Fatalf("NewUnifiedSearcher: %v", err)
+	}
+
+	ctx := context.Background()
+	// Two clearly-distinguishable contents so any tier produces a
+	// score difference. We don't assert exact scores — just that the
+	// returned slice is monotonically non-increasing in Score.
+	if _, err := mgr.Add(ctx, coremem.KindWorking, coremem.MemoryItem{Content: "go modules", Importance: 0.5}); err != nil {
+		t.Fatalf("Add 1: %v", err)
+	}
+	if _, err := mgr.Add(ctx, coremem.KindEpisodic, coremem.MemoryItem{Content: "unrelated cooking recipe", Importance: 0.5}); err != nil {
+		t.Fatalf("Add 2: %v", err)
+	}
+	if _, err := mgr.Add(ctx, coremem.KindSemantic, coremem.MemoryItem{Content: "go modules guide", Tags: []string{"go"}, Importance: 0.5}); err != nil {
+		t.Fatalf("Add 3: %v", err)
+	}
+
+	results, err := u.SearchUnified(ctx, "go modules", 10)
+	if err != nil {
+		t.Fatalf("SearchUnified: %v", err)
+	}
+	for i := 1; i < len(results); i++ {
+		if results[i-1].Score < results[i].Score {
+			t.Errorf("results not sorted desc at i=%d: %v < %v", i, results[i-1].Score, results[i].Score)
+		}
+	}
+}
