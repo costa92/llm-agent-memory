@@ -19,3 +19,11 @@ documented in this file.
   (Phase A item A-2).
 - `memory.UnifiedSearcher.SearchUnified(ctx, query, topK)`
   (Phase A item A-3).
+
+### Known Limitations
+
+- `ConsolidateScoped` / `ForgetScoped` / `StatsScoped` / `Consolidator.Consolidate`
+  process at most one page (50 for `Consolidate*`, 100 for `Forget*`/`Stats*`)
+  of items per call. Scopes or tiers with more matching items than the page
+  cap will see only the first page acted upon. A cursor-aware pagination
+  loop is on the M2 roadmap.
