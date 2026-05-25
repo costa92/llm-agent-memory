@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -72,4 +73,22 @@ func newCoreScopedManager(t *testing.T) *coremem.ScopedManager {
 		t.Fatalf("coremem.NewScopedManager: %v", err)
 	}
 	return sm
+}
+
+// jsonRoundTripSnap encodes then decodes a Snapshot through
+// encoding/json. This forces Metadata maps to use the concrete types
+// that the wire format actually produces (int → float64, etc.) so
+// downstream readers like promotionCountOf are tested under the same
+// conditions an Import-from-disk path would see.
+func jsonRoundTripSnap(t *testing.T, snap coremem.Snapshot) coremem.Snapshot {
+	t.Helper()
+	b, err := json.Marshal(snap)
+	if err != nil {
+		t.Fatalf("json.Marshal snapshot: %v", err)
+	}
+	var out coremem.Snapshot
+	if err := json.Unmarshal(b, &out); err != nil {
+		t.Fatalf("json.Unmarshal snapshot: %v", err)
+	}
+	return out
 }

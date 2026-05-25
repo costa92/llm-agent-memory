@@ -89,3 +89,62 @@ func TestConsolidator_SecondCall_DoesNotRePromote(t *testing.T) {
 		t.Errorf("episodic count = %d, want 1 (no duplicate)", got)
 	}
 }
+
+func TestConsolidator_DedupeMetadata_RoundTripsThroughExportImport(t *testing.T) {
+	// Build mgr A, promote once, export Working snapshot, import into a
+	// fresh mgr B, then assert: (a) the source still carries the dedupe
+	// metadata, and (b) re-running Consolidate on mgr B is a no-op.
+	mgrA := newCoreManager(t)
+	c, err := NewConsolidator(mgrA)
+	if err != nil {
+		t.Fatalf("NewConsolidator: %v", err)
+	}
+
+	ctx := context.Background()
+	if _, err := mgrA.Add(ctx, coremem.KindWorking, coremem.MemoryItem{
+		Content: "ride-along", Importance: 0.9,
+	}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	if _, err := c.Consolidate(ctx, coremem.ConsolidateOptions{Threshold: 0.7}); err != nil {
+		t.Fatalf("Consolidate: %v", err)
+	}
+
+	snaps, err := mgrA.ExportAll(ctx, "")
+	if err != nil {
+		t.Fatalf("ExportAll: %v", err)
+	}
+	workingSnap, ok := snaps[coremem.KindWorking]
+	if !ok {
+		t.Fatalf("working snapshot missing")
+	}
+
+	// Force a JSON round-trip so map[string]any types reflect what an
+	// over-the-wire reload would produce.
+	roundTripped := jsonRoundTripSnap(t, workingSnap)
+
+	mgrB := newCoreManager(t)
+	rpt, err := mgrB.ImportAll(ctx, map[coremem.Kind]coremem.Snapshot{
+		coremem.KindWorking: roundTripped,
+	}, "", coremem.ImportReplace)
+	if err != nil {
+		t.Fatalf("ImportAll: %v", err)
+	}
+	if rpt[coremem.KindWorking].Loaded != 1 {
+		t.Fatalf("Loaded = %d, want 1", rpt[coremem.KindWorking].Loaded)
+	}
+
+	// Re-run Consolidate on mgr B — must be a no-op because the
+	// imported source item still carries MetaKeyPromotionCount == 1.
+	cB, err := NewConsolidator(mgrB)
+	if err != nil {
+		t.Fatalf("NewConsolidator B: %v", err)
+	}
+	n, err := cB.Consolidate(ctx, coremem.ConsolidateOptions{Threshold: 0.7})
+	if err != nil {
+		t.Fatalf("Consolidate B: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("Consolidate after import promoted = %d, want 0 (metadata must survive round-trip)", n)
+	}
+}
