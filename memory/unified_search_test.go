@@ -122,3 +122,37 @@ func TestUnifiedSearcher_SortsByScoreDescending(t *testing.T) {
 		}
 	}
 }
+
+func TestUnifiedSearcher_HonorsTopK(t *testing.T) {
+	mgr := newCoreManager(t)
+	u, err := NewUnifiedSearcher(mgr)
+	if err != nil {
+		t.Fatalf("NewUnifiedSearcher: %v", err)
+	}
+
+	ctx := context.Background()
+	// Seed 5 distinct items across tiers, all matching the query.
+	contents := []struct {
+		kind    coremem.Kind
+		content string
+	}{
+		{coremem.KindWorking, "go alpha"},
+		{coremem.KindWorking, "go bravo"},
+		{coremem.KindEpisodic, "go charlie"},
+		{coremem.KindEpisodic, "go delta"},
+		{coremem.KindSemantic, "go echo"},
+	}
+	for _, c := range contents {
+		if _, err := mgr.Add(ctx, c.kind, coremem.MemoryItem{Content: c.content, Importance: 0.5}); err != nil {
+			t.Fatalf("Add %s/%s: %v", c.kind, c.content, err)
+		}
+	}
+
+	results, err := u.SearchUnified(ctx, "go", 3)
+	if err != nil {
+		t.Fatalf("SearchUnified: %v", err)
+	}
+	if got := len(results); got > 3 {
+		t.Errorf("len(results) = %d, want ≤ 3", got)
+	}
+}
