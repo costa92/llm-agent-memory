@@ -6,7 +6,7 @@ documented in this file.
 <!-- Keep a Changelog format: https://keepachangelog.com/en/1.1.0/ -->
 <!-- Semver: https://semver.org/ -->
 
-## [0.1.0] - 2026-05-26
+## [0.1.0] - 2026-05-25
 
 ### Added
 
