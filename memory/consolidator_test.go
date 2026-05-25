@@ -52,3 +52,40 @@ func TestConsolidator_FirstPromote_WritesDedupeMetadata(t *testing.T) {
 		t.Errorf("episodic Metadata[%q] = %q, want %q", MetaKeyPromotedFrom, got, id)
 	}
 }
+
+func TestConsolidator_SecondCall_DoesNotRePromote(t *testing.T) {
+	mgr := newCoreManager(t)
+	c, err := NewConsolidator(mgr)
+	if err != nil {
+		t.Fatalf("NewConsolidator: %v", err)
+	}
+
+	ctx := context.Background()
+	if _, err := mgr.Add(ctx, coremem.KindWorking, coremem.MemoryItem{
+		Content: "promote me once", Importance: 0.9,
+	}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	n1, err := c.Consolidate(ctx, coremem.ConsolidateOptions{Threshold: 0.7})
+	if err != nil {
+		t.Fatalf("Consolidate #1: %v", err)
+	}
+	if n1 != 1 {
+		t.Fatalf("Consolidate #1 promoted = %d, want 1", n1)
+	}
+
+	n2, err := c.Consolidate(ctx, coremem.ConsolidateOptions{Threshold: 0.7})
+	if err != nil {
+		t.Fatalf("Consolidate #2: %v", err)
+	}
+	if n2 != 0 {
+		t.Errorf("Consolidate #2 promoted = %d, want 0 (promote-once policy)", n2)
+	}
+
+	// Episodic must still hold exactly one copy.
+	pages, _ := mgr.ListAll(ctx, coremem.ListFilter{}, 100, nil)
+	if got := len(pages[coremem.KindEpisodic].Items); got != 1 {
+		t.Errorf("episodic count = %d, want 1 (no duplicate)", got)
+	}
+}
