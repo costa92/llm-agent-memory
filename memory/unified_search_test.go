@@ -55,3 +55,38 @@ func contentsOf(rs []coremem.SearchResult) []string {
 	}
 	return out
 }
+
+func TestUnifiedSearcher_DedupesByIDAndContent(t *testing.T) {
+	mgr := newCoreManager(t)
+	u, err := NewUnifiedSearcher(mgr)
+	if err != nil {
+		t.Fatalf("NewUnifiedSearcher: %v", err)
+	}
+
+	ctx := context.Background()
+	// Same Content + same ID across Working and Episodic — should
+	// collapse to a single result.
+	const sharedID = "fixed-id-001"
+	const sharedContent = "duplicated note"
+	if _, err := mgr.Add(ctx, coremem.KindWorking, coremem.MemoryItem{ID: sharedID, Content: sharedContent, Importance: 0.5}); err != nil {
+		t.Fatalf("working Add: %v", err)
+	}
+	if _, err := mgr.Add(ctx, coremem.KindEpisodic, coremem.MemoryItem{ID: sharedID, Content: sharedContent, Importance: 0.5}); err != nil {
+		t.Fatalf("episodic Add: %v", err)
+	}
+
+	results, err := u.SearchUnified(ctx, "duplicated note", 10)
+	if err != nil {
+		t.Fatalf("SearchUnified: %v", err)
+	}
+
+	dupCount := 0
+	for _, r := range results {
+		if r.Item.ID == sharedID && r.Item.Content == sharedContent {
+			dupCount++
+		}
+	}
+	if dupCount != 1 {
+		t.Errorf("dup count = %d, want 1 (got results: %v)", dupCount, contentsOf(results))
+	}
+}
