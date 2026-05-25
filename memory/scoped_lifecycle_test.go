@@ -95,3 +95,46 @@ func TestScopedLifecycle_ConsolidateScoped_DoesNotPromoteOtherScope(t *testing.T
 		t.Errorf("episodic content = %q, want %q (alice leak!)", epi[0].Content, "b")
 	}
 }
+
+func TestScopedLifecycle_ForgetScoped_OnlyDeletesMatchingScope(t *testing.T) {
+	sm := newCoreScopedManager(t)
+	slm, err := NewScopedLifecycleManager(sm)
+	if err != nil {
+		t.Fatalf("NewScopedLifecycleManager: %v", err)
+	}
+
+	scopeA := coremem.Scope{User: "alice"}
+	scopeB := coremem.Scope{User: "bob"}
+
+	ctxA := coremem.WithScope(context.Background(), scopeA)
+	ctxB := coremem.WithScope(context.Background(), scopeB)
+
+	// Both users add a low-importance episodic item.
+	if _, err := sm.Add(ctxA, coremem.KindEpisodic, coremem.MemoryItem{Content: "a", Importance: 0.1}); err != nil {
+		t.Fatalf("alice Add: %v", err)
+	}
+	if _, err := sm.Add(ctxB, coremem.KindEpisodic, coremem.MemoryItem{Content: "b", Importance: 0.1}); err != nil {
+		t.Fatalf("bob Add: %v", err)
+	}
+
+	// Alice forgets by importance threshold 0.5. Bob's item must survive.
+	n, err := slm.ForgetScoped(ctxA, coremem.KindEpisodic, coremem.ForgetOptions{
+		Strategy:  coremem.ForgetByImportance,
+		Threshold: 0.5,
+	})
+	if err != nil {
+		t.Fatalf("ForgetScoped: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("forgotten = %d, want 1", n)
+	}
+
+	pages, _ := sm.Inner().ListAll(context.Background(), coremem.ListFilter{}, 100, nil)
+	epi := pages[coremem.KindEpisodic].Items
+	if len(epi) != 1 {
+		t.Fatalf("survivors = %d, want 1 (bob)", len(epi))
+	}
+	if epi[0].Content != "b" {
+		t.Errorf("surviving content = %q, want %q", epi[0].Content, "b")
+	}
+}

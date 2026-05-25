@@ -22,6 +22,13 @@ type ScopedLifecycleManager struct {
 	sm *coremem.ScopedManager
 }
 
+// forgetPair is the (id, importance) tuple used by the capacity-based
+// Forget branch. Kept package-private — no caller need.
+type forgetPair struct {
+	id  string
+	imp float64
+}
+
 // ErrScopedManagerRequired is returned by NewScopedLifecycleManager
 // when the inner *coremem.ScopedManager is nil.
 var ErrScopedManagerRequired = errors.New("memory: scoped manager required")
@@ -79,3 +86,91 @@ func (s *ScopedLifecycleManager) ConsolidateScoped(ctx context.Context, opts cor
 // timeNow is overridable in tests if a future task needs deterministic
 // clocks; today it is a plain alias to time.Now.
 var timeNow = func() time.Time { return time.Now() }
+
+// ForgetScoped applies the given Forget strategy ONLY to items whose
+// stored scope matches the ctx scope. A zero-value ctx scope behaves
+// like coremem.Manager.Forget (every item considered).
+//
+// Pinned items are always skipped, mirroring coremem.Manager.Forget.
+// Strategies supported: ForgetByImportance, ForgetByAge, ForgetByCapacity.
+func (s *ScopedLifecycleManager) ForgetScoped(ctx context.Context, kind coremem.Kind, opts coremem.ForgetOptions) (int, error) {
+	mgr := s.sm.Inner()
+	// Enumerate items in this scope via the ctx-aware ListAll.
+	pages, err := s.sm.ListAll(ctx, coremem.ListFilter{}, 100, nil)
+	if err != nil {
+		return 0, fmt.Errorf("memory: list %s: %w", kind, err)
+	}
+	candidates := pages[kind].Items
+	switch opts.Strategy {
+	case coremem.ForgetByImportance:
+		count := 0
+		for _, it := range candidates {
+			if coremem.IsPinned(it) {
+				continue
+			}
+			if it.Importance < opts.Threshold {
+				if err := mgr.Remove(ctx, kind, it.ID); err == nil {
+					count++
+				}
+			}
+		}
+		return count, nil
+	case coremem.ForgetByAge:
+		if opts.MaxAge <= 0 {
+			return 0, fmt.Errorf("memory: forget by age requires MaxAge > 0")
+		}
+		now := timeNow()
+		count := 0
+		for _, it := range candidates {
+			if coremem.IsPinned(it) {
+				continue
+			}
+			if now.Sub(it.CreatedAt) > opts.MaxAge {
+				if err := mgr.Remove(ctx, kind, it.ID); err == nil {
+					count++
+				}
+			}
+		}
+		return count, nil
+	case coremem.ForgetByCapacity:
+		if opts.Keep <= 0 {
+			return 0, nil
+		}
+		// Sort by importance ascending; evict the lowest first. Pinned
+		// items are excluded entirely (they don't count toward Keep nor
+		// get removed).
+		all := make([]forgetPair, 0, len(candidates))
+		for _, it := range candidates {
+			if coremem.IsPinned(it) {
+				continue
+			}
+			all = append(all, forgetPair{it.ID, it.Importance})
+		}
+		if len(all) <= opts.Keep {
+			return 0, nil
+		}
+		sortPairsByImpAsc(all)
+		toEvict := len(all) - opts.Keep
+		count := 0
+		for i := 0; i < toEvict; i++ {
+			if err := mgr.Remove(ctx, kind, all[i].id); err == nil {
+				count++
+			}
+		}
+		return count, nil
+	default:
+		return 0, fmt.Errorf("memory: unknown forget strategy %q", opts.Strategy)
+	}
+}
+
+// sortPairsByImpAsc is a small sort helper kept package-local so the
+// ForgetByCapacity branch above does not pull in coremem internals.
+// Insertion sort — stable, simple, and the only place in this
+// package that needs ordering. N is small (page size 100).
+func sortPairsByImpAsc(pairs []forgetPair) {
+	for i := 1; i < len(pairs); i++ {
+		for j := i; j > 0 && pairs[j-1].imp > pairs[j].imp; j-- {
+			pairs[j-1], pairs[j] = pairs[j], pairs[j-1]
+		}
+	}
+}
