@@ -163,6 +163,53 @@ func (s *ScopedLifecycleManager) ForgetScoped(ctx context.Context, kind coremem.
 	}
 }
 
+// StatsScoped returns per-kind Stats covering only items whose stored
+// scope matches the ctx scope. A zero-value ctx scope behaves like
+// coremem.Manager.StatsAll (every item counted).
+//
+// Returned Stats.Capacity mirrors the underlying memory's capacity
+// (NOT a scope-local cap), because capacity is a per-memory-type
+// attribute, not a per-scope one.
+func (s *ScopedLifecycleManager) StatsScoped(ctx context.Context) (map[coremem.Kind]coremem.Stats, error) {
+	pages, err := s.sm.ListAll(ctx, coremem.ListFilter{}, 100, nil)
+	if err != nil {
+		return nil, fmt.Errorf("memory: stats list: %w", err)
+	}
+	innerStats := s.sm.Inner().StatsAll()
+	out := make(map[coremem.Kind]coremem.Stats, len(pages))
+	now := timeNow()
+	for kind, page := range pages {
+		var (
+			count   = len(page.Items)
+			impSum  float64
+			oldest  time.Time
+			hasItem bool
+		)
+		for _, it := range page.Items {
+			impSum += it.Importance
+			if !hasItem || it.CreatedAt.Before(oldest) {
+				oldest = it.CreatedAt
+				hasItem = true
+			}
+		}
+		var avg float64
+		if count > 0 {
+			avg = impSum / float64(count)
+		}
+		var oldestAge time.Duration
+		if hasItem {
+			oldestAge = now.Sub(oldest)
+		}
+		out[kind] = coremem.Stats{
+			Count:         count,
+			Capacity:      innerStats[kind].Capacity,
+			OldestAge:     oldestAge,
+			AvgImportance: avg,
+		}
+	}
+	return out, nil
+}
+
 // sortPairsByImpAsc is a small sort helper kept package-local so the
 // ForgetByCapacity branch above does not pull in coremem internals.
 // Insertion sort — stable, simple, and the only place in this

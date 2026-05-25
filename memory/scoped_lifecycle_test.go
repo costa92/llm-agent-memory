@@ -138,3 +138,43 @@ func TestScopedLifecycle_ForgetScoped_OnlyDeletesMatchingScope(t *testing.T) {
 		t.Errorf("surviving content = %q, want %q", epi[0].Content, "b")
 	}
 }
+
+func TestScopedLifecycle_StatsScoped_CountsOnlyMatchingScope(t *testing.T) {
+	sm := newCoreScopedManager(t)
+	slm, err := NewScopedLifecycleManager(sm)
+	if err != nil {
+		t.Fatalf("NewScopedLifecycleManager: %v", err)
+	}
+
+	scopeA := coremem.Scope{User: "alice"}
+	scopeB := coremem.Scope{User: "bob"}
+
+	ctxA := coremem.WithScope(context.Background(), scopeA)
+	ctxB := coremem.WithScope(context.Background(), scopeB)
+
+	if _, err := sm.Add(ctxA, coremem.KindWorking, coremem.MemoryItem{Content: "a1", Importance: 0.5}); err != nil {
+		t.Fatalf("alice Add 1: %v", err)
+	}
+	if _, err := sm.Add(ctxA, coremem.KindWorking, coremem.MemoryItem{Content: "a2", Importance: 0.5}); err != nil {
+		t.Fatalf("alice Add 2: %v", err)
+	}
+	if _, err := sm.Add(ctxB, coremem.KindWorking, coremem.MemoryItem{Content: "b1", Importance: 0.5}); err != nil {
+		t.Fatalf("bob Add: %v", err)
+	}
+
+	statsA, err := slm.StatsScoped(ctxA)
+	if err != nil {
+		t.Fatalf("StatsScoped(alice): %v", err)
+	}
+	if got := statsA[coremem.KindWorking].Count; got != 2 {
+		t.Errorf("alice working Count = %d, want 2", got)
+	}
+
+	statsB, err := slm.StatsScoped(ctxB)
+	if err != nil {
+		t.Fatalf("StatsScoped(bob): %v", err)
+	}
+	if got := statsB[coremem.KindWorking].Count; got != 1 {
+		t.Errorf("bob working Count = %d, want 1", got)
+	}
+}
