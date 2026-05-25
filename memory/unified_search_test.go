@@ -156,3 +156,29 @@ func TestUnifiedSearcher_HonorsTopK(t *testing.T) {
 		t.Errorf("len(results) = %d, want ≤ 3", got)
 	}
 }
+
+func TestUnifiedSearcher_DoesNotAlterCoreSearchAll(t *testing.T) {
+	mgr := newCoreManager(t)
+	u, err := NewUnifiedSearcher(mgr)
+	if err != nil {
+		t.Fatalf("NewUnifiedSearcher: %v", err)
+	}
+
+	ctx := context.Background()
+	if _, err := mgr.Add(ctx, coremem.KindEpisodic, coremem.MemoryItem{Content: "alpha", Importance: 0.5}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	// First run unified — must not mutate state that SearchAll sees.
+	if _, err := u.SearchUnified(ctx, "alpha", 5); err != nil {
+		t.Fatalf("SearchUnified: %v", err)
+	}
+
+	out, err := mgr.SearchAll(ctx, "alpha", 5)
+	if err != nil {
+		t.Fatalf("SearchAll: %v", err)
+	}
+	if len(out[coremem.KindEpisodic]) == 0 {
+		t.Errorf("SearchAll lost the episodic result post-SearchUnified")
+	}
+}
