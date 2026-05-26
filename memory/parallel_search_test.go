@@ -103,7 +103,11 @@ func normalizeResults(rs []coremem.SearchResult) []coremem.SearchResult {
 	return out
 }
 
-func TestParallelSearcher_SearchAllParallel_FailsFastOnFirstError(t *testing.T) {
+func TestParallelSearcher_SearchAllParallel_SurfacesPerKindError(t *testing.T) {
+	// Note: today the impl waits for all 3 goroutines (wg.Wait before receive
+	// loop) — true fail-fast cancellation is M3+ hardening. This test asserts
+	// the report-first-error contract: errors are surfaced, not swallowed.
+	//
 	// Verify SearchAllParallel surfaces a real per-kind error rather
 	// than silently dropping it. We use an empty query, which makes
 	// every active kind return coremem.ErrEmptyQuery — a reproducible
@@ -112,8 +116,8 @@ func TestParallelSearcher_SearchAllParallel_FailsFastOnFirstError(t *testing.T) 
 	// types and cannot be wired with a Memory-interface mock).
 	//
 	// The intent matches the plan: regression coverage that locks in
-	// the fail-fast contract. If a future refactor swallows errors and
-	// returns (partialMap, nil), this test fires.
+	// the report-first-error contract. If a future refactor swallows
+	// errors and returns (partialMap, nil), this test fires.
 	mgr := newCoreManager(t)
 	ps, err := NewParallelSearcher(mgr)
 	if err != nil {

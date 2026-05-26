@@ -42,17 +42,18 @@ func NewUnifiedSearcher(inner *coremem.Manager, opts ...Option) (*UnifiedSearche
 func (u *UnifiedSearcher) observer() Observer { return u.cfg.observer }
 
 // SearchUnified fans out the query to every active memory kind via
-// coremem.Manager.SearchAll, merges the per-kind result lists into a
-// single slice, dedupes by (Item.ID, Item.Content) keeping the
+// ParallelSearcher.SearchAllParallel, merges the per-kind result lists
+// into a single slice, dedupes by (Item.ID, Item.Content) keeping the
 // highest-scoring entry, sorts by Score descending, and truncates to
 // topK (when topK > 0; topK ≤ 0 returns the full merged set).
 //
-// The per-kind topK passed to SearchAll is the same topK argument the
-// caller provides, so each tier returns its top-topK candidates before
-// merge. This means SearchUnified inspects at most 3 × topK candidates.
+// The per-kind topK passed to SearchAllParallel is the same topK
+// argument the caller provides, so each tier returns its top-topK
+// candidates before merge. This means SearchUnified inspects at most
+// 3 × topK candidates.
 func (u *UnifiedSearcher) SearchUnified(ctx context.Context, query string, topK int) ([]coremem.SearchResult, error) {
 	emit(u.observer(), EventSearchTotal, map[string]any{"query_len": len(query)})
-	ps, _ := NewParallelSearcher(u.mgr) // never returns an error when u.mgr is non-nil
+	ps, _ := NewParallelSearcher(u.mgr, WithObserver(u.observer())) // never returns an error when u.mgr is non-nil
 	perKind, err := ps.SearchAllParallel(ctx, query, topK)
 	if err != nil {
 		return nil, fmt.Errorf("memory: unified search fan-out: %w", err)
