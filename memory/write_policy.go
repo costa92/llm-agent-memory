@@ -193,3 +193,44 @@ func (p *PolicyEnforcingMemory) Add(ctx context.Context, in ProposedWrite) (stri
 		return "", errors.New("memory: write policy returned unknown verdict")
 	}
 }
+
+// PolicyAdapter exposes a WritePolicy as a coremem.Sanitizer so
+// callers wired to the existing WithSanitizer chain (see core
+// policy_hook.go) get policy semantics for free. The adapter cannot
+// reroute kinds — Sanitizer's return triple has no kind slot. When
+// the wrapped policy returns a Decision.Kind that differs from the
+// input kind, Sanitize returns ErrPolicyKindRerouteUnsupported.
+//
+// Source defaults to SourceSystem for adapter calls because the
+// Sanitizer interface carries no source hint. Callers wanting
+// source-specific policy decisions must use PolicyEnforcingMemory
+// directly.
+type PolicyAdapter struct {
+	Policy WritePolicy
+}
+
+// Sanitize satisfies coremem.Sanitizer. See PolicyAdapter godoc for
+// the reroute limitation.
+func (a PolicyAdapter) Sanitize(ctx context.Context, kind coremem.Kind, item coremem.MemoryItem) (coremem.MemoryItem, bool, error) {
+	decision := a.Policy.Decide(ctx, ProposedWrite{
+		Kind:   kind,
+		Item:   item,
+		Source: SourceSystem,
+	})
+	switch decision.Verdict {
+	case VerdictAccept, VerdictRedact:
+		if decision.Kind != kind {
+			return coremem.MemoryItem{}, false, ErrPolicyKindRerouteUnsupported
+		}
+		return decision.Item, true, nil
+	case VerdictReject:
+		return coremem.MemoryItem{}, false, nil
+	default:
+		return coremem.MemoryItem{}, false, errors.New("memory: write policy returned unknown verdict")
+	}
+}
+
+// Compile-time check that PolicyAdapter satisfies the core Sanitizer
+// contract. If coremem renames or restructures Sanitizer, this line
+// will fail to compile — a deliberate early-warning signal.
+var _ coremem.Sanitizer = PolicyAdapter{}

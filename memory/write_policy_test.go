@@ -194,3 +194,45 @@ func TestPolicyEnforcingMemory_Add_EmitsEventWritePolicyDecidedOnReject(t *testi
 		t.Errorf("reason = %v, want %q", got[0].Attrs["reason"], "policy:no-pii")
 	}
 }
+
+func TestPolicyAdapter_Sanitize_AcceptReturnsKeepTrue(t *testing.T) {
+	policy := PolicyFunc(func(_ context.Context, in ProposedWrite) WritePolicyDecision {
+		return WritePolicyDecision{Verdict: VerdictAccept, Kind: in.Kind, Item: in.Item}
+	})
+	adapter := PolicyAdapter{Policy: policy}
+	out, keep, err := adapter.Sanitize(context.Background(), coremem.KindWorking, coremem.MemoryItem{Content: "x"})
+	if err != nil {
+		t.Fatalf("Sanitize: %v", err)
+	}
+	if !keep {
+		t.Error("keep = false on VerdictAccept")
+	}
+	if out.Content != "x" {
+		t.Errorf("Content = %q, want %q", out.Content, "x")
+	}
+}
+
+func TestPolicyAdapter_Sanitize_RejectReturnsKeepFalse(t *testing.T) {
+	policy := PolicyFunc(func(_ context.Context, _ ProposedWrite) WritePolicyDecision {
+		return WritePolicyDecision{Verdict: VerdictReject}
+	})
+	adapter := PolicyAdapter{Policy: policy}
+	_, keep, err := adapter.Sanitize(context.Background(), coremem.KindWorking, coremem.MemoryItem{Content: "x"})
+	if err != nil {
+		t.Fatalf("Sanitize: %v", err)
+	}
+	if keep {
+		t.Error("keep = true on VerdictReject")
+	}
+}
+
+func TestPolicyAdapter_Sanitize_RerouteReturnsKindRerouteUnsupported(t *testing.T) {
+	policy := PolicyFunc(func(_ context.Context, in ProposedWrite) WritePolicyDecision {
+		return WritePolicyDecision{Verdict: VerdictAccept, Kind: coremem.KindEpisodic, Item: in.Item}
+	})
+	adapter := PolicyAdapter{Policy: policy}
+	_, _, err := adapter.Sanitize(context.Background(), coremem.KindWorking, coremem.MemoryItem{Content: "x"})
+	if !errors.Is(err, ErrPolicyKindRerouteUnsupported) {
+		t.Errorf("err = %v, want errors.Is ErrPolicyKindRerouteUnsupported", err)
+	}
+}
