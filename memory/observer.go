@@ -37,6 +37,9 @@ type Observer interface {
 //	EventForgottenTotal:        {"kind": coremem.Kind, "n": int}
 //	EventSnapshotItems:         {"kind": coremem.Kind, "n": int}
 //	EventSnapshotVectorsBytes:  {"kind": coremem.Kind, "bytes": int}
+//	EventWritePolicyDecided:    {"verdict": string, "input_kind": coremem.Kind,
+//	                             "decided_kind": coremem.Kind, "source": string,
+//	                             "reason": string}
 type Event struct {
 	Name  string
 	Attrs map[string]any
@@ -53,6 +56,14 @@ const (
 	EventForgottenTotal       = "memory_forgotten_total"
 	EventSnapshotItems        = "memory_snapshot_items"
 	EventSnapshotVectorsBytes = "memory_snapshot_vectors_bytes"
+	// EventWritePolicyDecided is emitted by PolicyEnforcingMemory.Add
+	// after every policy decision (accept, redact, reject). Attrs schema:
+	//   "verdict":      string  (one of VerdictAccept/Redact/Reject)
+	//   "input_kind":   coremem.Kind
+	//   "decided_kind": coremem.Kind  (mirrors input_kind on reject)
+	//   "source":       string  (the WriteSource of the ProposedWrite)
+	//   "reason":       string  (the WritePolicyDecision.Reason)
+	EventWritePolicyDecided = "memory_write_policy_decided"
 )
 
 // emit is the no-op-guarded internal emitter used by every Observer

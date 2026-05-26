@@ -172,8 +172,7 @@ func (p *PolicyEnforcingMemory) Add(ctx context.Context, in ProposedWrite) (stri
 		if err != nil {
 			return "", err
 		}
-		// FIXME(M3-Task4): swap for EventWritePolicyDecided constant
-		emit(p.observer(), "memory_write_policy_decided", map[string]any{
+		emit(p.observer(), EventWritePolicyDecided, map[string]any{
 			"verdict":      string(decision.Verdict),
 			"input_kind":   in.Kind,
 			"decided_kind": decision.Kind,
@@ -182,8 +181,7 @@ func (p *PolicyEnforcingMemory) Add(ctx context.Context, in ProposedWrite) (stri
 		})
 		return id, nil
 	case VerdictReject:
-		// FIXME(M3-Task4): swap for EventWritePolicyDecided constant
-		emit(p.observer(), "memory_write_policy_decided", map[string]any{
+		emit(p.observer(), EventWritePolicyDecided, map[string]any{
 			"verdict":      string(decision.Verdict),
 			"input_kind":   in.Kind,
 			"decided_kind": in.Kind, // no reroute happened; mirror input

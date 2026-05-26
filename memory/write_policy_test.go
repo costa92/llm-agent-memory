@@ -110,3 +110,87 @@ func TestPolicyEnforcingMemory_Add_VerdictReject_ReturnsErrRejectedByPolicy(t *t
 		t.Errorf("Add err = %v, want errors.Is ErrRejectedByPolicy", err)
 	}
 }
+
+func TestPolicyEnforcingMemory_Add_EmitsEventWritePolicyDecidedOnAccept(t *testing.T) {
+	rec := &recordingObserver{}
+	mgr := newCoreManager(t)
+	policy := PolicyFunc(func(_ context.Context, in ProposedWrite) WritePolicyDecision {
+		return WritePolicyDecision{Verdict: VerdictAccept, Kind: in.Kind, Item: in.Item, Reason: "ok"}
+	})
+	pem, err := NewPolicyEnforcingMemory(mgr, policy, WithObserver(rec))
+	if err != nil {
+		t.Fatalf("NewPolicyEnforcingMemory: %v", err)
+	}
+	if _, err := pem.Add(context.Background(), ProposedWrite{
+		Kind: coremem.KindWorking, Item: coremem.MemoryItem{Content: "x"}, Source: SourceUserSaved,
+	}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	got := rec.snapshot()
+	if len(got) != 1 {
+		t.Fatalf("expected exactly 1 event, got %d: %+v", len(got), got)
+	}
+	if got[0].Name != EventWritePolicyDecided {
+		t.Errorf("event Name = %q, want %q", got[0].Name, EventWritePolicyDecided)
+	}
+	if v, _ := got[0].Attrs["verdict"].(string); v != string(VerdictAccept) {
+		t.Errorf("verdict = %v, want %q", got[0].Attrs["verdict"], VerdictAccept)
+	}
+	if s, _ := got[0].Attrs["source"].(string); s != string(SourceUserSaved) {
+		t.Errorf("source = %v, want %q", got[0].Attrs["source"], SourceUserSaved)
+	}
+	if r, _ := got[0].Attrs["reason"].(string); r != "ok" {
+		t.Errorf("reason = %v, want %q", got[0].Attrs["reason"], "ok")
+	}
+}
+
+func TestPolicyEnforcingMemory_Add_EmitsEventWritePolicyDecidedOnRedact(t *testing.T) {
+	rec := &recordingObserver{}
+	mgr := newCoreManager(t)
+	policy := PolicyFunc(func(_ context.Context, in ProposedWrite) WritePolicyDecision {
+		redacted := in.Item
+		redacted.Content = "[REDACTED]"
+		return WritePolicyDecision{Verdict: VerdictRedact, Kind: in.Kind, Item: redacted, Reason: "pii"}
+	})
+	pem, err := NewPolicyEnforcingMemory(mgr, policy, WithObserver(rec))
+	if err != nil {
+		t.Fatalf("NewPolicyEnforcingMemory: %v", err)
+	}
+	if _, err := pem.Add(context.Background(), ProposedWrite{
+		Kind: coremem.KindWorking, Item: coremem.MemoryItem{Content: "ssn 123-45-6789"},
+	}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	got := rec.snapshot()
+	if len(got) != 1 || got[0].Name != EventWritePolicyDecided {
+		t.Fatalf("expected 1 EventWritePolicyDecided event, got %+v", got)
+	}
+	if v, _ := got[0].Attrs["verdict"].(string); v != string(VerdictRedact) {
+		t.Errorf("verdict = %v, want %q", got[0].Attrs["verdict"], VerdictRedact)
+	}
+}
+
+func TestPolicyEnforcingMemory_Add_EmitsEventWritePolicyDecidedOnReject(t *testing.T) {
+	rec := &recordingObserver{}
+	mgr := newCoreManager(t)
+	policy := PolicyFunc(func(_ context.Context, _ ProposedWrite) WritePolicyDecision {
+		return WritePolicyDecision{Verdict: VerdictReject, Reason: "policy:no-pii"}
+	})
+	pem, err := NewPolicyEnforcingMemory(mgr, policy, WithObserver(rec))
+	if err != nil {
+		t.Fatalf("NewPolicyEnforcingMemory: %v", err)
+	}
+	_, _ = pem.Add(context.Background(), ProposedWrite{
+		Kind: coremem.KindWorking, Item: coremem.MemoryItem{Content: "x"}, Source: SourceAgentInferred,
+	})
+	got := rec.snapshot()
+	if len(got) != 1 || got[0].Name != EventWritePolicyDecided {
+		t.Fatalf("expected 1 EventWritePolicyDecided event, got %+v", got)
+	}
+	if v, _ := got[0].Attrs["verdict"].(string); v != string(VerdictReject) {
+		t.Errorf("verdict = %v, want %q", got[0].Attrs["verdict"], VerdictReject)
+	}
+	if r, _ := got[0].Attrs["reason"].(string); r != "policy:no-pii" {
+		t.Errorf("reason = %v, want %q", got[0].Attrs["reason"], "policy:no-pii")
+	}
+}
