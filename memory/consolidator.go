@@ -42,6 +42,7 @@ const (
 // disabled status on the source are preserved verbatim by Update.
 type Consolidator struct {
 	mgr *coremem.Manager
+	cfg *config
 }
 
 // ErrManagerRequired is returned by NewConsolidator when the inner
@@ -51,12 +52,16 @@ var ErrManagerRequired = errors.New("memory: manager required")
 
 // NewConsolidator wraps an existing *coremem.Manager. Returns
 // ErrManagerRequired if inner is nil.
-func NewConsolidator(inner *coremem.Manager) (*Consolidator, error) {
+func NewConsolidator(inner *coremem.Manager, opts ...Option) (*Consolidator, error) {
 	if inner == nil {
 		return nil, ErrManagerRequired
 	}
-	return &Consolidator{mgr: inner}, nil
+	return &Consolidator{mgr: inner, cfg: newConfig(opts)}, nil
 }
+
+// observer exposes the configured observer for in-package callers and
+// tests. Package-private — callers should not depend on the accessor.
+func (c *Consolidator) observer() Observer { return c.cfg.observer }
 
 // Consolidate enumerates Working via the Lister capability, applies
 // Threshold + MinAge, skips items already promoted (MetaKeyPromotionCount

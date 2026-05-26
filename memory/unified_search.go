@@ -21,6 +21,7 @@ import (
 // (this is captured in the roadmap as an M1 open question).
 type UnifiedSearcher struct {
 	mgr *coremem.Manager
+	cfg *config
 }
 
 // ErrUnifiedManagerRequired is returned by NewUnifiedSearcher when the
@@ -29,12 +30,16 @@ var ErrUnifiedManagerRequired = errors.New("memory: unified searcher requires ma
 
 // NewUnifiedSearcher wraps an existing *coremem.Manager. Returns
 // ErrUnifiedManagerRequired if inner is nil.
-func NewUnifiedSearcher(inner *coremem.Manager) (*UnifiedSearcher, error) {
+func NewUnifiedSearcher(inner *coremem.Manager, opts ...Option) (*UnifiedSearcher, error) {
 	if inner == nil {
 		return nil, ErrUnifiedManagerRequired
 	}
-	return &UnifiedSearcher{mgr: inner}, nil
+	return &UnifiedSearcher{mgr: inner, cfg: newConfig(opts)}, nil
 }
+
+// observer exposes the configured observer for in-package callers and
+// tests. Package-private — callers should not depend on the accessor.
+func (u *UnifiedSearcher) observer() Observer { return u.cfg.observer }
 
 // SearchUnified fans out the query to every active memory kind via
 // coremem.Manager.SearchAll, merges the per-kind result lists into a

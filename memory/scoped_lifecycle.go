@@ -19,7 +19,8 @@ import (
 // implement), filter by ctx scope using coremem's matching rules, then
 // act on only the matching IDs.
 type ScopedLifecycleManager struct {
-	sm *coremem.ScopedManager
+	sm  *coremem.ScopedManager
+	cfg *config
 }
 
 // forgetPair is the (id, importance) tuple used by the capacity-based
@@ -35,12 +36,16 @@ var ErrScopedManagerRequired = errors.New("memory: scoped manager required")
 
 // NewScopedLifecycleManager wraps an existing *coremem.ScopedManager.
 // Returns ErrScopedManagerRequired if inner is nil.
-func NewScopedLifecycleManager(inner *coremem.ScopedManager) (*ScopedLifecycleManager, error) {
+func NewScopedLifecycleManager(inner *coremem.ScopedManager, opts ...Option) (*ScopedLifecycleManager, error) {
 	if inner == nil {
 		return nil, ErrScopedManagerRequired
 	}
-	return &ScopedLifecycleManager{sm: inner}, nil
+	return &ScopedLifecycleManager{sm: inner, cfg: newConfig(opts)}, nil
 }
+
+// observer exposes the configured observer for in-package callers and
+// tests. Package-private — callers should not depend on the accessor.
+func (s *ScopedLifecycleManager) observer() Observer { return s.cfg.observer }
 
 // ConsolidateScoped promotes Working→Episodic only for items whose
 // stored scope matches the ctx scope. A zero-value ctx scope behaves

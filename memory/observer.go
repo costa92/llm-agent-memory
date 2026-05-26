@@ -70,3 +70,36 @@ func emit(o Observer, name string, attrs map[string]any) {
 	}
 	o.OnEvent(Event{Name: name, Attrs: attrs})
 }
+
+// Option is the functional-option type used by the four constructors
+// in this package (NewScopedLifecycleManager, NewConsolidator,
+// NewUnifiedSearcher, NewParallelSearcher). All options are backwards-
+// compatible additions; an empty option list is the documented
+// zero-config behavior.
+type Option func(*config)
+
+// config is the internal shared config struct accumulated by the
+// variadic option list. Today it carries only an Observer; future
+// options (e.g. WithSerialSearch) extend this struct.
+type config struct {
+	observer Observer
+}
+
+// WithObserver installs the given Observer on the constructed wrapper.
+// A nil Observer is treated as the zero-config no-op and elides the
+// emit call entirely.
+func WithObserver(o Observer) Option {
+	return func(c *config) { c.observer = o }
+}
+
+// newConfig is the shared option-folding helper used by every
+// constructor in this package.
+func newConfig(opts []Option) *config {
+	c := &config{}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(c)
+		}
+	}
+	return c
+}

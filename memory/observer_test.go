@@ -109,3 +109,36 @@ func TestObserver_TypedNilInterface_PanicsAsDocumented(t *testing.T) {
 	emit(o, EventAddTotal, nil)
 	t.Errorf("emit did not panic — see typedNilObserver docstring")
 }
+
+func TestObserver_ScopedLifecycleManager_AcceptsWithObserver(t *testing.T) {
+	rec := &recordingObserver{}
+	slm, err := NewScopedLifecycleManager(newCoreScopedManager(t), WithObserver(rec))
+	if err != nil {
+		t.Fatalf("NewScopedLifecycleManager: %v", err)
+	}
+	if slm.observer() != rec {
+		t.Errorf("WithObserver did not install the observer reference")
+	}
+}
+
+func TestObserver_Consolidator_AcceptsWithObserver(t *testing.T) {
+	rec := &recordingObserver{}
+	c, err := NewConsolidator(newCoreManager(t), WithObserver(rec))
+	if err != nil {
+		t.Fatalf("NewConsolidator: %v", err)
+	}
+	if c.observer() != rec {
+		t.Errorf("WithObserver did not install the observer reference")
+	}
+}
+
+func TestObserver_UnifiedSearcher_AcceptsWithObserver(t *testing.T) {
+	rec := &recordingObserver{}
+	u, err := NewUnifiedSearcher(newCoreManager(t), WithObserver(rec))
+	if err != nil {
+		t.Fatalf("NewUnifiedSearcher: %v", err)
+	}
+	if u.observer() != rec {
+		t.Errorf("WithObserver did not install the observer reference")
+	}
+}
