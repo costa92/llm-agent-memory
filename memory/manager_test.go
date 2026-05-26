@@ -372,3 +372,50 @@ func TestManager_WithSanitizerWrappedMemory_InstallsWithoutCast(t *testing.T) {
 		t.Errorf("Content = %q, want %q — sanitizer chain did not run", got.Content, "UPPER:hello")
 	}
 }
+
+// TestManager_ParityWithCoreManager_MethodMatrix is the structural
+// assertion that the sibling Manager exposes every coremem.Manager
+// public method that consumers depend on. It is NOT a goroutine-safety
+// test, NOT a correctness test — those live in their per-method tests
+// above. This is a single guard against an accidental drop of a public
+// method during a future refactor.
+func TestManager_ParityWithCoreManager_MethodMatrix(t *testing.T) {
+	ctx := context.Background()
+	w, e, s := newCoreWorking(t), newCoreEpisodic(t), newCoreSemantic(t)
+	mgr, err := NewManager(Options{
+		Working:  TierOptions{Memory: w},
+		Episodic: TierOptions{Memory: e},
+		Semantic: TierOptions{Memory: s},
+	})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+
+	if _, err := mgr.Add(ctx, coremem.KindWorking, coremem.MemoryItem{Content: "p"}); err != nil {
+		t.Errorf("Add: %v", err)
+	}
+	if _, err := mgr.Search(ctx, coremem.KindWorking, "p", 5); err != nil {
+		t.Errorf("Search: %v", err)
+	}
+	if _, err := mgr.SearchAll(ctx, "p", 5); err != nil {
+		t.Errorf("SearchAll: %v", err)
+	}
+	if _, err := mgr.ListAll(ctx, coremem.ListFilter{}, 10, nil); err != nil {
+		t.Errorf("ListAll: %v", err)
+	}
+	if got := mgr.StatsAll(); len(got) != 3 {
+		t.Errorf("StatsAll: got %d entries, want 3", len(got))
+	}
+	if _, err := mgr.ExportAll(ctx, ""); err != nil {
+		t.Errorf("ExportAll: %v", err)
+	}
+	if _, err := mgr.ImportAll(ctx, map[coremem.Kind]coremem.Snapshot{}, "", coremem.ImportMerge); err != nil {
+		t.Errorf("ImportAll(empty): %v", err)
+	}
+	if _, err := mgr.Consolidate(ctx, coremem.ConsolidateOptions{}); !errors.Is(err, ErrCapabilityMissing) {
+		t.Errorf("Consolidate without Lifecycle: err = %v, want ErrCapabilityMissing", err)
+	}
+	if _, err := mgr.Forget(ctx, coremem.KindWorking, coremem.ForgetOptions{Strategy: coremem.ForgetByImportance, Threshold: 0.1}); !errors.Is(err, ErrCapabilityMissing) {
+		t.Errorf("Forget without Lifecycle: err = %v, want ErrCapabilityMissing", err)
+	}
+}
