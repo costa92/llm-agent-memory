@@ -258,3 +258,48 @@ func TestSQLiteStore_NewSQLiteStore_RefusesFutureSchemaVersion(t *testing.T) {
 		t.Errorf("NewSQLiteStore err = %v, want errors.Is ErrSchemaVersionAhead", err)
 	}
 }
+
+func TestSQLiteStore_Save_ConcurrentSameKey_SerializesCleanly(t *testing.T) {
+	store := newTempSQLiteStore(t)
+	ctx := context.Background()
+
+	const goroutines = 8
+	const writesPerGoroutine = 25
+	done := make(chan error, goroutines)
+	for g := 0; g < goroutines; g++ {
+		go func(g int) {
+			for i := 0; i < writesPerGoroutine; i++ {
+				snap := coremem.Snapshot{
+					Version: coremem.SnapshotVersion,
+					Kind:    coremem.KindWorking,
+					Items: []coremem.SnapshotItem{
+						{Item: coremem.MemoryItem{ID: "x", Content: "w"}, Vector: []float32{1}},
+					},
+				}
+				if err := store.Save(ctx, "race-key", snap); err != nil {
+					done <- err
+					return
+				}
+			}
+			done <- nil
+		}(g)
+	}
+	for i := 0; i < goroutines; i++ {
+		if err := <-done; err != nil {
+			t.Fatalf("goroutine err: %v", err)
+		}
+	}
+
+	// Exactly one row should exist for (race-key, working) regardless
+	// of write count — UPSERT collapsed all writes into one.
+	var n int
+	if err := store.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM memory_snapshots WHERE key = ? AND kind = ?`,
+		"race-key", string(coremem.KindWorking),
+	).Scan(&n); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("post-race rows = %d, want 1", n)
+	}
+}
