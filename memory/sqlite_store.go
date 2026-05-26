@@ -3,8 +3,10 @@
 // modernc.org/sqlite driver. No CGO required.
 //
 // Schema: see SchemaVersion + the migrator below. Two tables:
-//   memory_store_schema (version, applied_at)
-//   memory_snapshots    (key, kind, snapshot_json, updated_at)
+//
+//	memory_store_schema (version, applied_at)
+//	memory_snapshots    (key, kind, snapshot_json, updated_at)
+//
 // with a single index on memory_snapshots(key).
 package memory
 
@@ -80,14 +82,11 @@ func NewSQLiteStore(dsn string) (*SQLiteStore, error) {
 	return s, nil
 }
 
-// Close closes the underlying database handle. Idempotent.
+// Close closes the underlying database handle. Calling Close
+// concurrently or multiple times is safe — *sql.DB.Close is
+// itself idempotent and goroutine-safe.
 func (s *SQLiteStore) Close() error {
-	if s.db == nil {
-		return nil
-	}
-	err := s.db.Close()
-	s.db = nil
-	return err
+	return s.db.Close()
 }
 
 // migrate runs every pending migration step in a single transaction.
@@ -310,3 +309,9 @@ func (s *SQLiteStore) List(ctx context.Context) ([]string, error) {
 	}
 	return out, nil
 }
+
+// Compile-time check: SQLiteStore satisfies coremem.SnapshotStore. If
+// upstream renames or restructures SnapshotStore, this line will fail
+// to compile — a deliberate early-warning signal that complements the
+// runtime assertion in sqlite_store_test.go.
+var _ coremem.SnapshotStore = (*SQLiteStore)(nil)
