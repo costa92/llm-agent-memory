@@ -182,3 +182,79 @@ func TestSQLiteStore_Save_OnConflict_OverwritesExistingRow(t *testing.T) {
 		t.Errorf("Content = %q, want %q (UPSERT did not overwrite)", got.Items[0].Item.Content, "v2")
 	}
 }
+
+func TestSQLiteStore_Migration_IsIdempotentAcrossReopens(t *testing.T) {
+	// Open, close, reopen the SAME shared in-memory DSN. The second
+	// open must NOT fail and must NOT insert a duplicate version row.
+	dsn := "file:sqlitetest_idem?mode=memory&cache=shared"
+
+	// Hold a sentinel open to keep the shared-memory DB alive across the
+	// two NewSQLiteStore calls in this test (closing the only conn would
+	// destroy the DB).
+	sentinel, err := NewSQLiteStore(dsn)
+	if err != nil {
+		t.Fatalf("sentinel open: %v", err)
+	}
+	t.Cleanup(func() { _ = sentinel.Close() })
+
+	first, err := NewSQLiteStore(dsn)
+	if err != nil {
+		t.Fatalf("first open: %v", err)
+	}
+	v1, err := first.currentVersion(context.Background())
+	if err != nil {
+		t.Fatalf("first currentVersion: %v", err)
+	}
+	if v1 != SchemaVersion {
+		t.Errorf("first currentVersion = %d, want %d", v1, SchemaVersion)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatalf("first close: %v", err)
+	}
+
+	second, err := NewSQLiteStore(dsn)
+	if err != nil {
+		t.Fatalf("second open: %v", err)
+	}
+	t.Cleanup(func() { _ = second.Close() })
+	v2, err := second.currentVersion(context.Background())
+	if err != nil {
+		t.Fatalf("second currentVersion: %v", err)
+	}
+	if v2 != SchemaVersion {
+		t.Errorf("second currentVersion = %d, want %d", v2, SchemaVersion)
+	}
+
+	// Count rows: must be exactly 1, not 2 (no duplicate INSERTs).
+	var n int
+	if err := second.db.QueryRowContext(context.Background(),
+		`SELECT COUNT(*) FROM memory_store_schema`).Scan(&n); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if n != SchemaVersion {
+		t.Errorf("memory_store_schema rows = %d, want %d", n, SchemaVersion)
+	}
+}
+
+func TestSQLiteStore_NewSQLiteStore_RefusesFutureSchemaVersion(t *testing.T) {
+	dsn := "file:sqlitetest_future?mode=memory&cache=shared"
+	sentinel, err := NewSQLiteStore(dsn)
+	if err != nil {
+		t.Fatalf("sentinel open: %v", err)
+	}
+	t.Cleanup(func() { _ = sentinel.Close() })
+
+	// Forge a future-version row by writing directly to the shared DB.
+	if _, err := sentinel.db.ExecContext(context.Background(),
+		`INSERT INTO memory_store_schema (version, applied_at) VALUES (?, ?)`,
+		SchemaVersion+1, "2099-01-01T00:00:00Z",
+	); err != nil {
+		t.Fatalf("forge future version: %v", err)
+	}
+
+	// Re-opening should detect SchemaVersion+1 > SchemaVersion and refuse.
+	_, err = NewSQLiteStore(dsn)
+	if !errors.Is(err, ErrSchemaVersionAhead) {
+		t.Errorf("NewSQLiteStore err = %v, want errors.Is ErrSchemaVersionAhead", err)
+	}
+}
