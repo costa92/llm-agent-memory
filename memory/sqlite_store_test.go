@@ -95,3 +95,90 @@ func TestSQLiteStore_LoadKind_MissingReturnsErrNotExist(t *testing.T) {
 		t.Errorf("LoadKind missing err = %v, want wraps os.ErrNotExist", err)
 	}
 }
+
+func TestSQLiteStore_Delete_RemovesAllKindsAtKey(t *testing.T) {
+	store := newTempSQLiteStore(t)
+	ctx := context.Background()
+	for _, kind := range []coremem.Kind{coremem.KindWorking, coremem.KindEpisodic} {
+		if err := store.Save(ctx, "k", coremem.Snapshot{
+			Version: coremem.SnapshotVersion,
+			Kind:    kind,
+			Items:   []coremem.SnapshotItem{{Item: coremem.MemoryItem{ID: "x"}, Vector: []float32{1}}},
+		}); err != nil {
+			t.Fatalf("Save %v: %v", kind, err)
+		}
+	}
+	if err := store.Delete(ctx, "k"); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if _, err := store.LoadKind(ctx, "k", coremem.KindWorking); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("LoadKind working post-delete err = %v, want os.ErrNotExist", err)
+	}
+	if _, err := store.LoadKind(ctx, "k", coremem.KindEpisodic); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("LoadKind episodic post-delete err = %v, want os.ErrNotExist", err)
+	}
+}
+
+func TestSQLiteStore_List_ReturnsSortedUniqueKeys(t *testing.T) {
+	store := newTempSQLiteStore(t)
+	ctx := context.Background()
+	keys := []string{"charlie", "alpha", "bravo"}
+	for _, k := range keys {
+		if err := store.Save(ctx, k, coremem.Snapshot{
+			Version: coremem.SnapshotVersion,
+			Kind:    coremem.KindWorking,
+			Items:   []coremem.SnapshotItem{{Item: coremem.MemoryItem{ID: "x"}, Vector: []float32{1}}},
+		}); err != nil {
+			t.Fatalf("Save %q: %v", k, err)
+		}
+	}
+	// Save same key with a different kind — must not duplicate in List.
+	if err := store.Save(ctx, "alpha", coremem.Snapshot{
+		Version: coremem.SnapshotVersion,
+		Kind:    coremem.KindEpisodic,
+		Items:   []coremem.SnapshotItem{{Item: coremem.MemoryItem{ID: "x"}, Vector: []float32{1}}},
+	}); err != nil {
+		t.Fatalf("Save alpha episodic: %v", err)
+	}
+	got, err := store.List(ctx)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	want := []string{"alpha", "bravo", "charlie"}
+	if len(got) != len(want) {
+		t.Fatalf("List got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("List[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestSQLiteStore_Save_OnConflict_OverwritesExistingRow(t *testing.T) {
+	store := newTempSQLiteStore(t)
+	ctx := context.Background()
+	snap1 := coremem.Snapshot{
+		Version: coremem.SnapshotVersion,
+		Kind:    coremem.KindWorking,
+		Items:   []coremem.SnapshotItem{{Item: coremem.MemoryItem{ID: "a", Content: "v1"}, Vector: []float32{1}}},
+	}
+	snap2 := coremem.Snapshot{
+		Version: coremem.SnapshotVersion,
+		Kind:    coremem.KindWorking,
+		Items:   []coremem.SnapshotItem{{Item: coremem.MemoryItem{ID: "a", Content: "v2"}, Vector: []float32{2}}},
+	}
+	if err := store.Save(ctx, "k", snap1); err != nil {
+		t.Fatalf("Save v1: %v", err)
+	}
+	if err := store.Save(ctx, "k", snap2); err != nil {
+		t.Fatalf("Save v2: %v", err)
+	}
+	got, err := store.LoadKind(ctx, "k", coremem.KindWorking)
+	if err != nil {
+		t.Fatalf("LoadKind: %v", err)
+	}
+	if got.Items[0].Item.Content != "v2" {
+		t.Errorf("Content = %q, want %q (UPSERT did not overwrite)", got.Items[0].Item.Content, "v2")
+	}
+}
