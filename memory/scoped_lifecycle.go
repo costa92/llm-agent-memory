@@ -53,13 +53,11 @@ func (s *ScopedLifecycleManager) ConsolidateScoped(ctx context.Context, opts cor
 		opts.Threshold = 0.7
 	}
 	mgr := s.sm.Inner()
-	// Enumerate working items in this scope via the ctx-aware
-	// ScopedManager.ListAll, which applies scope filtering automatically.
-	pages, err := s.sm.ListAll(ctx, coremem.ListFilter{}, 0, nil)
+	allItems, err := s.listAllScoped(ctx, 200)
 	if err != nil {
 		return 0, fmt.Errorf("memory: list working: %w", err)
 	}
-	working := pages[coremem.KindWorking].Items
+	working := allItems[coremem.KindWorking]
 	count := 0
 	for _, it := range working {
 		if it.Importance < opts.Threshold {
@@ -74,7 +72,7 @@ func (s *ScopedLifecycleManager) ConsolidateScoped(ctx context.Context, opts cor
 			}
 		}
 		clone := it
-		clone.ID = "" // let episodic re-generate
+		clone.ID = ""
 		if _, err := mgr.Add(ctx, coremem.KindEpisodic, clone); err != nil {
 			return count, fmt.Errorf("memory: consolidate-scoped add: %w", err)
 		}
@@ -219,5 +217,42 @@ func sortPairsByImpAsc(pairs []forgetPair) {
 		for j := i; j > 0 && pairs[j-1].imp > pairs[j].imp; j-- {
 			pairs[j-1], pairs[j] = pairs[j], pairs[j-1]
 		}
+	}
+}
+
+// listAllScoped enumerates every item across every active kind in the
+// ctx scope, paging through ScopedManager.ListAll until each kind's
+// NextCursor is the empty string. Returns the accumulated per-kind
+// items. pageSize is the per-hop request size; the loop is unbounded.
+//
+// This closes the silent-truncation bug in the M1 helpers, which
+// called ListAll once with no cursor and capped per-call processing at
+// a single page.
+func (s *ScopedLifecycleManager) listAllScoped(ctx context.Context, pageSize int) (map[coremem.Kind][]coremem.MemoryItem, error) {
+	if pageSize <= 0 {
+		pageSize = 200
+	}
+	out := make(map[coremem.Kind][]coremem.MemoryItem)
+	cursors := map[coremem.Kind]string{}
+	for {
+		pages, err := s.sm.ListAll(ctx, coremem.ListFilter{}, pageSize, cursors)
+		if err != nil {
+			return nil, fmt.Errorf("memory: paged list: %w", err)
+		}
+		anyMore := false
+		nextCursors := map[coremem.Kind]string{}
+		for kind, page := range pages {
+			if len(page.Items) > 0 {
+				out[kind] = append(out[kind], page.Items...)
+			}
+			if page.NextCursor != "" {
+				nextCursors[kind] = page.NextCursor
+				anyMore = true
+			}
+		}
+		if !anyMore {
+			return out, nil
+		}
+		cursors = nextCursors
 	}
 }

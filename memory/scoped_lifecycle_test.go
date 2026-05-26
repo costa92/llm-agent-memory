@@ -181,11 +181,10 @@ func TestScopedLifecycle_StatsScoped_CountsOnlyMatchingScope(t *testing.T) {
 }
 
 func TestScopedLifecycle_ConsolidateScoped_PagesThroughLargeScope(t *testing.T) {
-	// Verify pagination loop: the M1 impl called ListAll with no cursor,
-	// silently capping at one page. With 180 working items above
-	// threshold, the M1 impl would promote at most 100 and silently drop
-	// the remaining 80.
-	sm := newCoreScopedManager(t)
+	// Verify pagination loop: the M1 impl calls ListAll with no cursor,
+	// silently capping at one underlying page (coremem v0.7.0 defaults
+	// to 50). With 180 working items above threshold the M1 impl drops
+	// the tail; the cursor-aware Task 2 fix must promote all 180.
 	// Working capacity in newCoreWorking is 16 — too small for 180.
 	// Build a manager directly with a wide-capacity working memory.
 	mgr, err := coremem.NewManager(coremem.ManagerOptions{
@@ -200,7 +199,6 @@ func TestScopedLifecycle_ConsolidateScoped_PagesThroughLargeScope(t *testing.T) 
 	if err != nil {
 		t.Fatalf("NewScopedManager: %v", err)
 	}
-	_ = sm // pin the helper so unused-var doesn't bite if tests later add it
 
 	slm, err := NewScopedLifecycleManager(wideSM)
 	if err != nil {
