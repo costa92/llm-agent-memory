@@ -251,3 +251,78 @@ func TestManager_Consolidate_WithCoreManagerFallback_Succeeds(t *testing.T) {
 		t.Errorf("Consolidate promoted = %d, want >= 1", n)
 	}
 }
+
+func TestManager_ExportAll_FansAcrossTiersThatExpose(t *testing.T) {
+	ctx := context.Background()
+	w, e := newCoreWorking(t), newCoreEpisodic(t)
+	mgr, _ := NewManager(Options{
+		Working:  TierOptions{Memory: w, Exporter: w},
+		Episodic: TierOptions{Memory: e, Exporter: e},
+	})
+	if _, err := mgr.Add(ctx, coremem.KindWorking, coremem.MemoryItem{Content: "w"}); err != nil {
+		t.Fatalf("Add working: %v", err)
+	}
+	if _, err := mgr.Add(ctx, coremem.KindEpisodic, coremem.MemoryItem{Content: "e"}); err != nil {
+		t.Fatalf("Add episodic: %v", err)
+	}
+	snaps, err := mgr.ExportAll(ctx, "")
+	if err != nil {
+		t.Fatalf("ExportAll: %v", err)
+	}
+	if _, ok := snaps[coremem.KindWorking]; !ok {
+		t.Errorf("ExportAll missing KindWorking: %+v", snaps)
+	}
+	if _, ok := snaps[coremem.KindEpisodic]; !ok {
+		t.Errorf("ExportAll missing KindEpisodic: %+v", snaps)
+	}
+	if got := len(snaps[coremem.KindWorking].Items); got != 1 {
+		t.Errorf("Working snapshot Items len = %d, want 1", got)
+	}
+}
+
+func TestManager_ExportAll_FallsBackToMemoryAssertionForExporter(t *testing.T) {
+	ctx := context.Background()
+	w := newCoreWorking(t)
+	mgr, _ := NewManager(Options{Working: TierOptions{Memory: w}})
+	if _, err := mgr.Add(ctx, coremem.KindWorking, coremem.MemoryItem{Content: "x"}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	snaps, err := mgr.ExportAll(ctx, "")
+	if err != nil {
+		t.Fatalf("ExportAll: %v", err)
+	}
+	if _, ok := snaps[coremem.KindWorking]; !ok {
+		t.Errorf("ExportAll missing KindWorking via Memory-as-Exporter assertion: %+v", snaps)
+	}
+}
+
+func TestManager_ExportAll_PersistKeyWithoutStore_ReturnsErrSnapshotStoreNotConfigured(t *testing.T) {
+	w := newCoreWorking(t)
+	mgr, _ := NewManager(Options{Working: TierOptions{Memory: w}})
+	_, err := mgr.ExportAll(context.Background(), "any-key")
+	if !errors.Is(err, coremem.ErrSnapshotStoreNotConfigured) {
+		t.Errorf("err = %v, want errors.Is coremem.ErrSnapshotStoreNotConfigured", err)
+	}
+}
+
+func TestManager_ImportAll_InlineSnapsRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	src := newCoreWorking(t)
+	if _, err := src.Add(ctx, coremem.MemoryItem{Content: "round"}); err != nil {
+		t.Fatalf("src Add: %v", err)
+	}
+	snap, err := src.Export(ctx)
+	if err != nil {
+		t.Fatalf("src Export: %v", err)
+	}
+
+	dst := newCoreWorking(t)
+	mgr, _ := NewManager(Options{Working: TierOptions{Memory: dst, Importer: dst}})
+	reports, err := mgr.ImportAll(ctx, map[coremem.Kind]coremem.Snapshot{coremem.KindWorking: snap}, "", coremem.ImportReplace)
+	if err != nil {
+		t.Fatalf("ImportAll: %v", err)
+	}
+	if reports[coremem.KindWorking].Loaded != 1 {
+		t.Errorf("Loaded = %d, want 1", reports[coremem.KindWorking].Loaded)
+	}
+}

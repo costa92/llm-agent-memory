@@ -30,6 +30,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 
 	coremem "github.com/costa92/llm-agent/memory"
 )
@@ -361,3 +362,124 @@ func (a coreManagerLifecycle) Forget(ctx context.Context, kind coremem.Kind, opt
 // Compile-time check that coreManagerLifecycle satisfies the new
 // LifecycleMemory interface. Catches drift if either signature changes.
 var _ LifecycleMemory = coreManagerLifecycle{}
+
+// osErrNotExist is aliased so loadAllFromStore can call errors.Is
+// without an additional public dependency on the `os` package being
+// visible from manager.go consumers. (Removes the temptation to add
+// a public errors.Is shim.)
+var osErrNotExist = os.ErrNotExist
+
+// ExportAll exports each active tier whose Exporter is wired (or whose
+// Memory satisfies coremem.Exporter via type assertion). Parity with
+// coremem.Manager.ExportAll: when persistKey != "", every snapshot is
+// also persisted via Options.SnapshotStore — returning
+// coremem.ErrSnapshotStoreNotConfigured if the store is nil.
+func (m *Manager) ExportAll(ctx context.Context, persistKey string) (map[coremem.Kind]coremem.Snapshot, error) {
+	out := make(map[coremem.Kind]coremem.Snapshot, 3)
+	for _, kind := range []coremem.Kind{coremem.KindWorking, coremem.KindEpisodic, coremem.KindSemantic} {
+		t, _ := m.tierFor(kind)
+		if t.Memory == nil {
+			continue
+		}
+		exp := t.Exporter
+		if exp == nil {
+			if e, ok := t.Memory.(coremem.Exporter); ok {
+				exp = e
+			}
+		}
+		if exp == nil {
+			continue
+		}
+		snap, err := exp.Export(ctx)
+		if err != nil {
+			return out, fmt.Errorf("memory: manager export %s: %w", kind, err)
+		}
+		out[kind] = snap
+	}
+	if persistKey == "" {
+		return out, nil
+	}
+	if m.opts.SnapshotStore == nil {
+		return out, coremem.ErrSnapshotStoreNotConfigured
+	}
+	for _, snap := range out {
+		if err := m.opts.SnapshotStore.Save(ctx, persistKey, snap); err != nil {
+			return out, err
+		}
+	}
+	return out, nil
+}
+
+// ImportAll fans the import out to each tier whose Importer is wired
+// (or whose Memory satisfies coremem.Importer via type assertion). Two
+// modes: when snaps != nil, the inline map wins; otherwise the
+// configured SnapshotStore is consulted (preferring LoadKind when
+// available). Disabled tiers / missing keys / missing importers are
+// silently skipped. Parity with coremem.Manager.ImportAll.
+func (m *Manager) ImportAll(ctx context.Context, snaps map[coremem.Kind]coremem.Snapshot, persistKey string, mode coremem.ImportMode) (map[coremem.Kind]coremem.ImportReport, error) {
+	if snaps == nil && persistKey != "" {
+		if m.opts.SnapshotStore == nil {
+			return nil, coremem.ErrSnapshotStoreNotConfigured
+		}
+		loaded, err := loadAllFromStore(ctx, m.opts.SnapshotStore, persistKey)
+		if err != nil {
+			return nil, err
+		}
+		snaps = loaded
+	}
+	out := make(map[coremem.Kind]coremem.ImportReport, len(snaps))
+	for kind, snap := range snaps {
+		t, _ := m.tierFor(kind)
+		if t.Memory == nil {
+			continue
+		}
+		imp := t.Importer
+		if imp == nil {
+			if i, ok := t.Memory.(coremem.Importer); ok {
+				imp = i
+			}
+		}
+		if imp == nil {
+			continue
+		}
+		rpt, err := imp.Import(ctx, snap, mode)
+		if err != nil {
+			return out, fmt.Errorf("memory: manager import %s: %w", kind, err)
+		}
+		out[kind] = rpt
+	}
+	return out, nil
+}
+
+// loadAllFromStore mirrors the per-kind loop in coremem.Manager.ImportAll
+// (manager.go:368-391) — prefer LoadKind when the store implements it,
+// otherwise fall back to Load and filter by Kind. Missing keys (those
+// wrapping os.ErrNotExist) are silently skipped.
+func loadAllFromStore(ctx context.Context, store coremem.SnapshotStore, persistKey string) (map[coremem.Kind]coremem.Snapshot, error) {
+	type kindLoader interface {
+		LoadKind(ctx context.Context, key string, kind coremem.Kind) (coremem.Snapshot, error)
+	}
+	out := make(map[coremem.Kind]coremem.Snapshot, 3)
+	for _, kind := range []coremem.Kind{coremem.KindWorking, coremem.KindEpisodic, coremem.KindSemantic} {
+		var (
+			snap coremem.Snapshot
+			err  error
+		)
+		if lk, ok := store.(kindLoader); ok {
+			snap, err = lk.LoadKind(ctx, persistKey, kind)
+		} else {
+			snap, err = store.Load(ctx, persistKey)
+			if err == nil && snap.Kind != kind {
+				continue
+			}
+		}
+		if err != nil {
+			if errors.Is(err, osErrNotExist) {
+				continue
+			}
+			return nil, fmt.Errorf("memory: manager import load %s: %w", kind, err)
+		}
+		out[kind] = snap
+	}
+	return out, nil
+}
