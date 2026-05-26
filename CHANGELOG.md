@@ -6,6 +6,43 @@ documented in this file.
 <!-- Keep a Changelog format: https://keepachangelog.com/en/1.1.0/ -->
 <!-- Semver: https://semver.org/ -->
 
+## [0.3.0] - 2026-05-26
+
+### Added
+
+- `WritePolicy` interface with `Decide(ctx, ProposedWrite) WritePolicyDecision`
+  covering all four documented decisions from `docs/memory-roadmap.zh-CN.md`
+  §4.3 (C-1): user-saved, agent-inferred, reject, redact. Includes
+  `Verdict` enum (`accept` / `redact` / `reject`), `WriteSource` enum
+  (`user_saved` / `agent_inferred` / `system`), and the `PolicyFunc`
+  function-to-interface adapter.
+- `PolicyEnforcingMemory` wrapper that consumes a `WritePolicy` and
+  translates each verdict into a `*coremem.Manager.Add` call (or a
+  rejection with the aliased `ErrRejectedByPolicy`). Reroutes the
+  write kind when the policy returns a different `Kind` than the
+  input.
+- `PolicyAdapter` lets a `WritePolicy` satisfy the existing
+  `coremem.Sanitizer` interface for callers wired to `WithSanitizer`.
+  Returns `ErrPolicyKindRerouteUnsupported` if the policy attempts
+  to reroute kinds (Sanitizer's return triple has no kind slot).
+- `SQLiteStore` (C-2): first non-filesystem implementation of
+  `coremem.SnapshotStore`. Implements `Save` / `Load` / `LoadKind` /
+  `Delete` / `List`. Idempotent in-code migrator (schema v1, two
+  tables, one index) with future-version refusal via
+  `ErrSchemaVersionAhead`. Round-trips through `coremem.Manager.
+  ExportAll` / `ImportAll`.
+- `EventWritePolicyDecided` observer event, emitted by
+  `PolicyEnforcingMemory.Add` for all three verdicts. Attrs schema:
+  `verdict`, `input_kind`, `decided_kind`, `source`, `reason`.
+
+### Dependencies
+
+- First third-party dependency: `modernc.org/sqlite` (pure-Go, no CGO).
+  Justification: enables a non-filesystem SnapshotStore without
+  forcing CGO on downstream siblings or breaking cross-compile.
+  Core `llm-agent` remains stdlib-only — this dep is contained to
+  the sibling.
+
 ## [0.2.0] - 2026-05-26
 
 ### Fixed
