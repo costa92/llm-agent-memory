@@ -137,7 +137,7 @@ var ErrUnknownKind = errors.New("memory: unknown kind")
 // NewManager validates opts and returns a *Manager. Returns ErrNoTiers
 // if every tier's Memory is nil.
 func NewManager(opts Options) (*Manager, error) {
-	if opts.Working.Memory == nil && opts.Episodic.Memory == nil && opts.Semantic.Memory == nil {
+	if opts.Working.Memory == nil && opts.Episodic.Memory == nil && opts.Semantic.Memory == nil && opts.CoreManager == nil {
 		return nil, ErrNoTiers
 	}
 	return &Manager{opts: opts}, nil
@@ -147,11 +147,16 @@ func NewManager(opts Options) (*Manager, error) {
 // "wired" iff its TierOptions.Memory is non-nil. Useful for callers
 // that want to branch before calling Add / Search.
 func (m *Manager) HasKind(kind coremem.Kind) bool {
-	t, err := m.tierFor(kind)
-	if err != nil {
+	switch kind {
+	case coremem.KindWorking, coremem.KindEpisodic, coremem.KindSemantic:
+	default:
 		return false
 	}
-	return t.Memory != nil
+	t, _ := m.tierFor(kind)
+	if t.Memory != nil {
+		return true
+	}
+	return m.opts.CoreManager != nil
 }
 
 // tierFor returns the TierOptions for the given kind. Returns
@@ -177,10 +182,13 @@ func (m *Manager) requireMemory(kind coremem.Kind) (coremem.Memory, error) {
 	if err != nil {
 		return nil, err
 	}
-	if t.Memory == nil {
-		return nil, fmt.Errorf("memory: manager %s: %w", kind, ErrTierDisabled)
+	if t.Memory != nil {
+		return t.Memory, nil
 	}
-	return t.Memory, nil
+	if m.opts.CoreManager != nil {
+		return coreManagerMemoryAdapter{mgr: m.opts.CoreManager, kind: kind}, nil
+	}
+	return nil, fmt.Errorf("memory: manager %s: %w", kind, ErrTierDisabled)
 }
 
 // Add dispatches to the wired tier's Memory.Add. Returns
@@ -233,6 +241,9 @@ func (m *Manager) Search(ctx context.Context, kind coremem.Kind, query string, t
 // Memory are omitted from the result map. Parity with
 // coremem.Manager.StatsAll.
 func (m *Manager) StatsAll() map[coremem.Kind]coremem.Stats {
+	if m.coreManagerOnly() {
+		return m.opts.CoreManager.StatsAll()
+	}
 	out := make(map[coremem.Kind]coremem.Stats, 3)
 	for _, kind := range []coremem.Kind{coremem.KindWorking, coremem.KindEpisodic, coremem.KindSemantic} {
 		t, _ := m.tierFor(kind)
@@ -249,6 +260,9 @@ func (m *Manager) StatsAll() map[coremem.Kind]coremem.Stats {
 // kind topK is honored (not a global cap); disabled tiers are omitted
 // from the result map.
 func (m *Manager) SearchAll(ctx context.Context, query string, topK int) (map[coremem.Kind][]coremem.SearchResult, error) {
+	if m.coreManagerOnly() {
+		return m.opts.CoreManager.SearchAll(ctx, query, topK)
+	}
 	out := make(map[coremem.Kind][]coremem.SearchResult, 3)
 	for _, kind := range []coremem.Kind{coremem.KindWorking, coremem.KindEpisodic, coremem.KindSemantic} {
 		t, _ := m.tierFor(kind)
@@ -270,6 +284,9 @@ func (m *Manager) SearchAll(ctx context.Context, query string, topK int) (map[co
 // silently skipped (parity with coremem.Manager.ListAll). cursors is
 // a per-kind map; missing entries start from the beginning.
 func (m *Manager) ListAll(ctx context.Context, filter coremem.ListFilter, pageSize int, cursors map[coremem.Kind]string) (map[coremem.Kind]coremem.ListPage, error) {
+	if m.coreManagerOnly() {
+		return m.opts.CoreManager.ListAll(ctx, filter, pageSize, cursors)
+	}
 	out := make(map[coremem.Kind]coremem.ListPage, 3)
 	for _, kind := range []coremem.Kind{coremem.KindWorking, coremem.KindEpisodic, coremem.KindSemantic} {
 		t, _ := m.tierFor(kind)
@@ -375,6 +392,9 @@ var osErrNotExist = os.ErrNotExist
 // also persisted via Options.SnapshotStore — returning
 // coremem.ErrSnapshotStoreNotConfigured if the store is nil.
 func (m *Manager) ExportAll(ctx context.Context, persistKey string) (map[coremem.Kind]coremem.Snapshot, error) {
+	if m.coreManagerOnly() {
+		return m.opts.CoreManager.ExportAll(ctx, persistKey)
+	}
 	out := make(map[coremem.Kind]coremem.Snapshot, 3)
 	for _, kind := range []coremem.Kind{coremem.KindWorking, coremem.KindEpisodic, coremem.KindSemantic} {
 		t, _ := m.tierFor(kind)
@@ -417,6 +437,9 @@ func (m *Manager) ExportAll(ctx context.Context, persistKey string) (map[coremem
 // available). Disabled tiers / missing keys / missing importers are
 // silently skipped. Parity with coremem.Manager.ImportAll.
 func (m *Manager) ImportAll(ctx context.Context, snaps map[coremem.Kind]coremem.Snapshot, persistKey string, mode coremem.ImportMode) (map[coremem.Kind]coremem.ImportReport, error) {
+	if m.coreManagerOnly() {
+		return m.opts.CoreManager.ImportAll(ctx, snaps, persistKey, mode)
+	}
 	if snaps == nil && persistKey != "" {
 		if m.opts.SnapshotStore == nil {
 			return nil, coremem.ErrSnapshotStoreNotConfigured
@@ -450,6 +473,57 @@ func (m *Manager) ImportAll(ctx context.Context, snaps map[coremem.Kind]coremem.
 	}
 	return out, nil
 }
+
+// coreManagerOnly reports whether no per-tier Memory is wired but a
+// CoreManager is present. In that mode every fan-out method delegates
+// wholesale to the wrapped *coremem.Manager. Hot path for the compat
+// shim's NewManagerFromCore.
+func (m *Manager) coreManagerOnly() bool {
+	return m.opts.Working.Memory == nil &&
+		m.opts.Episodic.Memory == nil &&
+		m.opts.Semantic.Memory == nil &&
+		m.opts.CoreManager != nil
+}
+
+// coreManagerMemoryAdapter satisfies coremem.Memory by routing every
+// call through (*coremem.Manager) for the given Kind. Used internally
+// by the compat shim path so that per-kind methods (Add / Get / Search
+// / Update / Remove / Stats) work when only Options.CoreManager is
+// wired.
+type coreManagerMemoryAdapter struct {
+	mgr  *coremem.Manager
+	kind coremem.Kind
+}
+
+func (a coreManagerMemoryAdapter) Type() coremem.Kind { return a.kind }
+
+func (a coreManagerMemoryAdapter) Add(ctx context.Context, item coremem.MemoryItem) (string, error) {
+	return a.mgr.Add(ctx, a.kind, item)
+}
+
+func (a coreManagerMemoryAdapter) Search(ctx context.Context, query string, topK int) ([]coremem.SearchResult, error) {
+	return a.mgr.Search(ctx, a.kind, query, topK)
+}
+
+func (a coreManagerMemoryAdapter) Get(ctx context.Context, id string) (coremem.MemoryItem, error) {
+	return a.mgr.Get(ctx, a.kind, id)
+}
+
+func (a coreManagerMemoryAdapter) Update(ctx context.Context, id string, fn func(*coremem.MemoryItem)) error {
+	return a.mgr.Update(ctx, a.kind, id, fn)
+}
+
+func (a coreManagerMemoryAdapter) Remove(ctx context.Context, id string) error {
+	return a.mgr.Remove(ctx, a.kind, id)
+}
+
+func (a coreManagerMemoryAdapter) Stats() coremem.Stats {
+	return a.mgr.StatsAll()[a.kind]
+}
+
+// Compile-time check that coreManagerMemoryAdapter satisfies
+// coremem.Memory. Catches drift if either signature changes.
+var _ coremem.Memory = coreManagerMemoryAdapter{}
 
 // loadAllFromStore mirrors the per-kind loop in coremem.Manager.ImportAll
 // (manager.go:368-391) — prefer LoadKind when the store implements it,
