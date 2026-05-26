@@ -326,3 +326,49 @@ func TestManager_ImportAll_InlineSnapsRoundTrip(t *testing.T) {
 		t.Errorf("Loaded = %d, want 1", reports[coremem.KindWorking].Loaded)
 	}
 }
+
+// TestManager_WithSanitizerWrappedMemory_InstallsWithoutCast is the
+// verbatim D-1 exit-criterion proof from docs/superpowers/plans/
+// 2026-05-25-llm-agent-memory-roadmap.md §5.1 D-1. coremem.WithSanitizer
+// returns the coremem.Memory interface value (see policy_hook.go:61-66);
+// pre-M4, that value could NOT be assigned to coremem.ManagerOptions.Working
+// (a *coremem.WorkingMemory). With the new sibling Options.Working.Memory
+// typed as coremem.Memory, the assignment compiles + works.
+//
+// If this test starts failing to compile, M4's central D-1 promise is
+// broken.
+func TestManager_WithSanitizerWrappedMemory_InstallsWithoutCast(t *testing.T) {
+	ctx := context.Background()
+	w := newCoreWorking(t)
+
+	// Build a sanitizer chain that uppercases content. This proves the
+	// chain runs (and therefore that the wrapped Memory is the one
+	// Manager.Add invokes — NOT the underlying *coremem.WorkingMemory).
+	uppercase := coremem.SanitizerFunc(func(_ context.Context, _ coremem.Kind, it coremem.MemoryItem) (coremem.MemoryItem, bool, error) {
+		it.Content = "UPPER:" + it.Content
+		return it, true, nil
+	})
+
+	// THE no-cast install. coremem.WithSanitizer returns coremem.Memory;
+	// in the old world this would NOT have compiled — TierOptions.Memory
+	// is exactly coremem.Memory, which closes the M4 D-1 gap.
+	wrapped := coremem.WithSanitizer(w, uppercase)
+	mgr, err := NewManager(Options{
+		Working: TierOptions{Memory: wrapped},
+	})
+	if err != nil {
+		t.Fatalf("NewManager with wrapped memory: %v", err)
+	}
+
+	id, err := mgr.Add(ctx, coremem.KindWorking, coremem.MemoryItem{Content: "hello"})
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	got, err := mgr.Get(ctx, coremem.KindWorking, id)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.Content != "UPPER:hello" {
+		t.Errorf("Content = %q, want %q — sanitizer chain did not run", got.Content, "UPPER:hello")
+	}
+}
