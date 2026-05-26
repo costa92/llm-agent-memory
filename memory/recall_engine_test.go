@@ -119,3 +119,62 @@ func TestRecallEngine_Recall_ParityWithUnifiedSearcher(t *testing.T) {
 		}
 	}
 }
+
+func TestRecallEngine_Recall_TierMask_Working_OmitsOtherTiers(t *testing.T) {
+	ctx := context.Background()
+	w, e, s := newCoreWorking(t), newCoreEpisodic(t), newCoreSemantic(t)
+	if _, err := w.Add(ctx, coremem.MemoryItem{Content: "w-only"}); err != nil {
+		t.Fatalf("w Add: %v", err)
+	}
+	if _, err := e.Add(ctx, coremem.MemoryItem{Content: "e-only"}); err != nil {
+		t.Fatalf("e Add: %v", err)
+	}
+	if _, err := s.Add(ctx, coremem.MemoryItem{Content: "s-only"}); err != nil {
+		t.Fatalf("s Add: %v", err)
+	}
+	mgr, _ := NewManager(Options{
+		Working:  TierOptions{Memory: w},
+		Episodic: TierOptions{Memory: e},
+		Semantic: TierOptions{Memory: s},
+	})
+	eng, _ := NewRecallEngine(mgr)
+	got, err := eng.Recall(ctx, "only", RecallOptions{TopK: 10, Tiers: TierWorking, IncludeProvenance: true})
+	if err != nil {
+		t.Fatalf("Recall: %v", err)
+	}
+	if _, ok := got.PerTier[coremem.KindEpisodic]; ok {
+		t.Errorf("PerTier should omit KindEpisodic when Tiers=TierWorking: %+v", got.PerTier)
+	}
+	if _, ok := got.PerTier[coremem.KindSemantic]; ok {
+		t.Errorf("PerTier should omit KindSemantic when Tiers=TierWorking: %+v", got.PerTier)
+	}
+	for _, r := range got.Results {
+		if r.Item.Content == "e-only" || r.Item.Content == "s-only" {
+			t.Errorf("Recall returned out-of-tier item %q under TierWorking mask", r.Item.Content)
+		}
+	}
+}
+
+func TestRecallEngine_Recall_PerTierBudget_CapsCandidates(t *testing.T) {
+	ctx := context.Background()
+	w := newCoreWorking(t)
+	for i := 0; i < 5; i++ {
+		if _, err := w.Add(ctx, coremem.MemoryItem{Content: "bursty"}); err != nil {
+			t.Fatalf("w Add: %v", err)
+		}
+	}
+	mgr, _ := NewManager(Options{Working: TierOptions{Memory: w}})
+	eng, _ := NewRecallEngine(mgr)
+	got, err := eng.Recall(ctx, "bursty", RecallOptions{
+		TopK:              10,
+		Tiers:             TierWorking,
+		Budgets:           map[coremem.Kind]int{coremem.KindWorking: 2},
+		IncludeProvenance: true,
+	})
+	if err != nil {
+		t.Fatalf("Recall: %v", err)
+	}
+	if got.PerTier[coremem.KindWorking].Considered > 2 {
+		t.Errorf("PerTier.Considered = %d, want <= 2 (budget cap)", got.PerTier[coremem.KindWorking].Considered)
+	}
+}
