@@ -27,7 +27,20 @@ func (r *recordingObserver) snapshot() []Event {
 }
 
 func TestObserver_CanonicalEventNames_AreDeclared(t *testing.T) {
+	// These string values are part of the public v0.2.0 contract.
+	// Changing any of them breaks downstream adapters (Prometheus, OTel,
+	// log emitters) silently. New events may be added; existing names
+	// must never be renamed or removed.
 	want := map[string]string{
+		"EventAddTotal":             "memory_add_total",
+		"EventSearchTotal":          "memory_search_total",
+		"EventSearchHits":           "memory_search_hits",
+		"EventConsolidatedTotal":    "memory_consolidated_total",
+		"EventForgottenTotal":       "memory_forgotten_total",
+		"EventSnapshotItems":        "memory_snapshot_items",
+		"EventSnapshotVectorsBytes": "memory_snapshot_vectors_bytes",
+	}
+	got := map[string]string{
 		"EventAddTotal":             EventAddTotal,
 		"EventSearchTotal":          EventSearchTotal,
 		"EventSearchHits":           EventSearchHits,
@@ -36,9 +49,9 @@ func TestObserver_CanonicalEventNames_AreDeclared(t *testing.T) {
 		"EventSnapshotItems":        EventSnapshotItems,
 		"EventSnapshotVectorsBytes": EventSnapshotVectorsBytes,
 	}
-	for name, val := range want {
-		if val == "" {
-			t.Errorf("%s is empty — must be a non-empty event name", name)
+	for name, wantVal := range want {
+		if got[name] != wantVal {
+			t.Errorf("%s = %q, want %q — public contract violation", name, got[name], wantVal)
 		}
 	}
 }
@@ -65,4 +78,34 @@ func TestObserver_RecordingObserver_CapturesEmittedEvents(t *testing.T) {
 	if got[1].Attrs["n"].(int) != 3 {
 		t.Errorf("got[1].Attrs[\"n\"] = %v, want 3", got[1].Attrs["n"])
 	}
+}
+
+// typedNilObserver demonstrates the documented "interface wrapping nil
+// concrete pointer" footgun. This test pins the contract — `emit` does
+// NOT use reflection to detect this case. If a future change tries to
+// add reflection-based nil detection (which would slow the hot path),
+// this test will catch the behavioral change.
+//
+// OnEvent dereferences the receiver (touches a field) so the call
+// panics with a real-world nil-deref signature — matching what any
+// non-trivial Observer (e.g. recordingObserver with its mutex) would
+// do. An empty method body would NOT panic on a nil pointer receiver
+// in Go, which would silently hide the footgun.
+type typedNilObserver struct {
+	calls int
+}
+
+func (t *typedNilObserver) OnEvent(Event) { t.calls++ }
+
+func TestObserver_TypedNilInterface_PanicsAsDocumented(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Errorf("expected panic on typed-nil interface, got nil — " +
+				"if reflection was added to emit, document the new contract")
+		}
+	}()
+	var r *typedNilObserver // nil concrete pointer
+	var o Observer = r      // interface wrapping nil — does NOT equal nil interface
+	emit(o, EventAddTotal, nil)
+	t.Errorf("emit did not panic — see typedNilObserver docstring")
 }

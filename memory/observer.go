@@ -10,6 +10,13 @@ package memory
 // The Observer interface is intentionally minimal — it gives consumers
 // a single typed funnel. Adapters (Prometheus, OTel, log emitters) live
 // outside this package.
+//
+// A nil Observer (untyped nil) is the documented no-op path: emit
+// returns immediately. Passing an interface value that wraps a nil
+// concrete pointer (e.g., `var r *MyObserver; var o Observer = r`)
+// is undefined behavior and may panic — emit cannot detect this case
+// without reflection, which would impose hot-path cost not justified
+// by the misuse pattern.
 type Observer interface {
 	OnEvent(e Event)
 }
@@ -52,6 +59,11 @@ const (
 // call site in this package. A nil Observer is the documented
 // zero-config path — emit returns immediately. Otherwise the event is
 // constructed (zero-allocation for nil Attrs) and forwarded.
+//
+// If Observer.OnEvent panics, the panic propagates to the caller —
+// emit does NOT recover. Observers MUST NOT panic (see Observer
+// godoc); recover/log/drop wrappers should be implemented at the
+// adapter layer.
 func emit(o Observer, name string, attrs map[string]any) {
 	if o == nil {
 		return
