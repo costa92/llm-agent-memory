@@ -132,3 +132,62 @@ var ErrCapabilityMissing = errors.New("memory: capability missing on tier")
 // ErrUnknownKind is returned by dispatch helpers when an unrecognized
 // Kind value is passed.
 var ErrUnknownKind = errors.New("memory: unknown kind")
+
+// NewManager validates opts and returns a *Manager. Returns ErrNoTiers
+// if every tier's Memory is nil.
+func NewManager(opts Options) (*Manager, error) {
+	if opts.Working.Memory == nil && opts.Episodic.Memory == nil && opts.Semantic.Memory == nil {
+		return nil, ErrNoTiers
+	}
+	return &Manager{opts: opts}, nil
+}
+
+// HasKind reports whether a tier is wired for the given kind. A tier is
+// "wired" iff its TierOptions.Memory is non-nil. Useful for callers
+// that want to branch before calling Add / Search.
+func (m *Manager) HasKind(kind coremem.Kind) bool {
+	t, err := m.tierFor(kind)
+	if err != nil {
+		return false
+	}
+	return t.Memory != nil
+}
+
+// tierFor returns the TierOptions for the given kind. Returns
+// ErrUnknownKind if kind is not one of KindWorking / KindEpisodic /
+// KindSemantic; returns the TierOptions (with possibly-nil Memory)
+// otherwise. Callers must check tier.Memory before dispatching.
+func (m *Manager) tierFor(kind coremem.Kind) (TierOptions, error) {
+	switch kind {
+	case coremem.KindWorking:
+		return m.opts.Working, nil
+	case coremem.KindEpisodic:
+		return m.opts.Episodic, nil
+	case coremem.KindSemantic:
+		return m.opts.Semantic, nil
+	default:
+		return TierOptions{}, fmt.Errorf("%w: %q", ErrUnknownKind, kind)
+	}
+}
+
+// requireMemory returns the tier's Memory or ErrTierDisabled.
+func (m *Manager) requireMemory(kind coremem.Kind) (coremem.Memory, error) {
+	t, err := m.tierFor(kind)
+	if err != nil {
+		return nil, err
+	}
+	if t.Memory == nil {
+		return nil, fmt.Errorf("memory: manager %s: %w", kind, ErrTierDisabled)
+	}
+	return t.Memory, nil
+}
+
+// Add dispatches to the wired tier's Memory.Add. Returns
+// ErrTierDisabled if the kind has no Memory wired.
+func (m *Manager) Add(ctx context.Context, kind coremem.Kind, item coremem.MemoryItem) (string, error) {
+	mem, err := m.requireMemory(kind)
+	if err != nil {
+		return "", err
+	}
+	return mem.Add(ctx, item)
+}
