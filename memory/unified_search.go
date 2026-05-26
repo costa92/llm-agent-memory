@@ -51,6 +51,7 @@ func (u *UnifiedSearcher) observer() Observer { return u.cfg.observer }
 // caller provides, so each tier returns its top-topK candidates before
 // merge. This means SearchUnified inspects at most 3 × topK candidates.
 func (u *UnifiedSearcher) SearchUnified(ctx context.Context, query string, topK int) ([]coremem.SearchResult, error) {
+	emit(u.observer(), EventSearchTotal, map[string]any{"query_len": len(query)})
 	perKind, err := u.mgr.SearchAll(ctx, query, topK)
 	if err != nil {
 		return nil, fmt.Errorf("memory: unified search fan-out: %w", err)
@@ -87,5 +88,6 @@ func (u *UnifiedSearcher) SearchUnified(ctx context.Context, query string, topK 
 	if topK > 0 && len(out) > topK {
 		out = out[:topK]
 	}
+	emit(u.observer(), EventSearchHits, map[string]any{"n": len(out)})
 	return out, nil
 }

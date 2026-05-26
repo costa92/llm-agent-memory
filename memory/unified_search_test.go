@@ -182,3 +182,42 @@ func TestUnifiedSearcher_DoesNotAlterCoreSearchAll(t *testing.T) {
 		t.Errorf("SearchAll lost the episodic result post-SearchUnified")
 	}
 }
+
+func TestUnifiedSearcher_SearchUnified_EmitsSearchTotalAndHits(t *testing.T) {
+	rec := &recordingObserver{}
+	mgr := newCoreManager(t)
+	u, err := NewUnifiedSearcher(mgr, WithObserver(rec))
+	if err != nil {
+		t.Fatalf("NewUnifiedSearcher: %v", err)
+	}
+	ctx := context.Background()
+	if _, err := mgr.Add(ctx, coremem.KindEpisodic, coremem.MemoryItem{Content: "go modules guide", Importance: 0.5}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	results, err := u.SearchUnified(ctx, "go modules", 5)
+	if err != nil {
+		t.Fatalf("SearchUnified: %v", err)
+	}
+
+	got := rec.snapshot()
+	var searchTotal, searchHits *Event
+	for i := range got {
+		switch got[i].Name {
+		case EventSearchTotal:
+			searchTotal = &got[i]
+		case EventSearchHits:
+			searchHits = &got[i]
+		}
+	}
+	if searchTotal == nil {
+		t.Errorf("no %q event emitted", EventSearchTotal)
+	} else if ql, _ := searchTotal.Attrs["query_len"].(int); ql != len("go modules") {
+		t.Errorf("query_len = %v, want %d", searchTotal.Attrs["query_len"], len("go modules"))
+	}
+	if searchHits == nil {
+		t.Errorf("no %q event emitted", EventSearchHits)
+	} else if n, _ := searchHits.Attrs["n"].(int); n != len(results) {
+		t.Errorf("hits n = %v, want %d", searchHits.Attrs["n"], len(results))
+	}
+}
