@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	coremem "github.com/costa92/llm-agent/memory"
@@ -146,5 +147,39 @@ func TestConsolidator_DedupeMetadata_RoundTripsThroughExportImport(t *testing.T)
 	}
 	if n != 0 {
 		t.Errorf("Consolidate after import promoted = %d, want 0 (metadata must survive round-trip)", n)
+	}
+}
+
+func TestConsolidator_Consolidate_PagesThroughLargeWorkingSet(t *testing.T) {
+	mgr, err := coremem.NewManager(coremem.ManagerOptions{
+		Working:  newCoreWorkingWithCapacity(t, 256),
+		Episodic: newCoreEpisodic(t),
+		Semantic: newCoreSemantic(t),
+	})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	c, err := NewConsolidator(mgr)
+	if err != nil {
+		t.Fatalf("NewConsolidator: %v", err)
+	}
+
+	ctx := context.Background()
+	const total = 175
+	for i := 0; i < total; i++ {
+		if _, err := mgr.Add(ctx, coremem.KindWorking, coremem.MemoryItem{
+			Content:    fmt.Sprintf("paged-%03d", i),
+			Importance: 0.9,
+		}); err != nil {
+			t.Fatalf("Add #%d: %v", i, err)
+		}
+	}
+
+	n, err := c.Consolidate(ctx, coremem.ConsolidateOptions{Threshold: 0.7})
+	if err != nil {
+		t.Fatalf("Consolidate: %v", err)
+	}
+	if n != total {
+		t.Fatalf("Consolidate promoted = %d, want %d (pagination dropped %d)", n, total, total-n)
 	}
 }

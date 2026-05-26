@@ -69,11 +69,11 @@ func (c *Consolidator) Consolidate(ctx context.Context, opts coremem.Consolidate
 	if opts.Threshold <= 0 {
 		opts.Threshold = 0.7
 	}
-	pages, err := c.mgr.ListAll(ctx, coremem.ListFilter{}, 100, nil)
+	allItems, err := c.listAllPaged(ctx, 200)
 	if err != nil {
 		return 0, fmt.Errorf("memory: consolidate list: %w", err)
 	}
-	working := pages[coremem.KindWorking].Items
+	working := allItems[coremem.KindWorking]
 	now := timeNow()
 	count := 0
 	for _, it := range working {
@@ -139,5 +139,41 @@ func promotionCountOf(it coremem.MemoryItem) int {
 		return int(v)
 	default:
 		return 0
+	}
+}
+
+// listAllPaged enumerates every item across every active kind via
+// Manager.ListAll, paging through cursors until each kind reports an
+// empty NextCursor. Mirrors ScopedLifecycleManager.listAllScoped — the
+// two cannot share a helper today because Consolidator wraps a
+// *coremem.Manager, not a *coremem.ScopedManager.
+//
+// Active-but-empty kinds materialize as map keys with empty slices
+// (parity with the underlying ListAll contract — see scoped_lifecycle.go
+// listAllScoped fix in commit 68e17d8).
+func (c *Consolidator) listAllPaged(ctx context.Context, pageSize int) (map[coremem.Kind][]coremem.MemoryItem, error) {
+	if pageSize <= 0 {
+		pageSize = 200
+	}
+	out := make(map[coremem.Kind][]coremem.MemoryItem)
+	cursors := map[coremem.Kind]string{}
+	for {
+		pages, err := c.mgr.ListAll(ctx, coremem.ListFilter{}, pageSize, cursors)
+		if err != nil {
+			return nil, fmt.Errorf("paged list: %w", err)
+		}
+		anyMore := false
+		nextCursors := map[coremem.Kind]string{}
+		for kind, page := range pages {
+			out[kind] = append(out[kind], page.Items...)
+			if page.NextCursor != "" {
+				nextCursors[kind] = page.NextCursor
+				anyMore = true
+			}
+		}
+		if !anyMore {
+			return out, nil
+		}
+		cursors = nextCursors
 	}
 }
