@@ -385,3 +385,39 @@ func TestScopedLifecycle_ConsolidateScoped_EmitsConsolidatedTotalEvent(t *testin
 		t.Errorf("event Attrs[\"n\"] = %v, want 1", found.Attrs["n"])
 	}
 }
+
+func TestScopedLifecycle_ForgetScoped_EmitsForgottenTotalEvent(t *testing.T) {
+	rec := &recordingObserver{}
+	slm, err := NewScopedLifecycleManager(newCoreScopedManager(t), WithObserver(rec))
+	if err != nil {
+		t.Fatalf("NewScopedLifecycleManager: %v", err)
+	}
+	ctx := coremem.WithScope(context.Background(), coremem.Scope{User: "forget-obs"})
+	if _, err := slm.sm.Add(ctx, coremem.KindEpisodic, coremem.MemoryItem{Content: "a", Importance: 0.1}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	if _, err := slm.ForgetScoped(ctx, coremem.KindEpisodic, coremem.ForgetOptions{
+		Strategy:  coremem.ForgetByImportance,
+		Threshold: 0.5,
+	}); err != nil {
+		t.Fatalf("ForgetScoped: %v", err)
+	}
+
+	got := rec.snapshot()
+	var found *Event
+	for i := range got {
+		if got[i].Name == EventForgottenTotal {
+			found = &got[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatalf("no %q event emitted", EventForgottenTotal)
+	}
+	if n, _ := found.Attrs["n"].(int); n != 1 {
+		t.Errorf("Attrs[\"n\"] = %v, want 1", found.Attrs["n"])
+	}
+	if k, _ := found.Attrs["kind"].(coremem.Kind); k != coremem.KindEpisodic {
+		t.Errorf("Attrs[\"kind\"] = %v, want %v", found.Attrs["kind"], coremem.KindEpisodic)
+	}
+}

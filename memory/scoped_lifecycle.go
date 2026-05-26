@@ -104,9 +104,9 @@ func (s *ScopedLifecycleManager) ForgetScoped(ctx context.Context, kind coremem.
 		return 0, fmt.Errorf("memory: list %s: %w", kind, err)
 	}
 	candidates := allItems[kind]
+	var count int
 	switch opts.Strategy {
 	case coremem.ForgetByImportance:
-		count := 0
 		for _, it := range candidates {
 			if coremem.IsPinned(it) {
 				continue
@@ -117,13 +117,11 @@ func (s *ScopedLifecycleManager) ForgetScoped(ctx context.Context, kind coremem.
 				}
 			}
 		}
-		return count, nil
 	case coremem.ForgetByAge:
 		if opts.MaxAge <= 0 {
 			return 0, fmt.Errorf("memory: forget by age requires MaxAge > 0")
 		}
 		now := timeNow()
-		count := 0
 		for _, it := range candidates {
 			if coremem.IsPinned(it) {
 				continue
@@ -134,7 +132,6 @@ func (s *ScopedLifecycleManager) ForgetScoped(ctx context.Context, kind coremem.
 				}
 			}
 		}
-		return count, nil
 	case coremem.ForgetByCapacity:
 		if opts.Keep <= 0 {
 			return 0, nil
@@ -154,16 +151,16 @@ func (s *ScopedLifecycleManager) ForgetScoped(ctx context.Context, kind coremem.
 		}
 		sortPairsByImpAsc(all)
 		toEvict := len(all) - opts.Keep
-		count := 0
 		for i := 0; i < toEvict; i++ {
 			if err := mgr.Remove(ctx, kind, all[i].id); err == nil {
 				count++
 			}
 		}
-		return count, nil
 	default:
 		return 0, fmt.Errorf("memory: unknown forget strategy %q", opts.Strategy)
 	}
+	emit(s.observer(), EventForgottenTotal, map[string]any{"kind": kind, "n": count})
+	return count, nil
 }
 
 // StatsScoped returns per-kind Stats covering only items whose stored
