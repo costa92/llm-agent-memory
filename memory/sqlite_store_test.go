@@ -303,3 +303,74 @@ func TestSQLiteStore_Save_ConcurrentSameKey_SerializesCleanly(t *testing.T) {
 		t.Errorf("post-race rows = %d, want 1", n)
 	}
 }
+
+func TestSQLiteStore_RoundTripsThroughCoreExportAllImportAll(t *testing.T) {
+	store := newTempSQLiteStore(t)
+
+	// Build a manager wired to use the SQLite store as its persistence
+	// backend. This proves SQLiteStore is a drop-in for FilesystemStore
+	// at the coremem.ManagerOptions.SnapshotStore slot.
+	mgr, err := coremem.NewManager(coremem.ManagerOptions{
+		Working:       newCoreWorking(t),
+		Episodic:      newCoreEpisodic(t),
+		Semantic:      newCoreSemantic(t),
+		SnapshotStore: store,
+	})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+
+	ctx := context.Background()
+	// Seed every active kind so all three snapshots round-trip.
+	if _, err := mgr.Add(ctx, coremem.KindWorking, coremem.MemoryItem{Content: "w1", Importance: 0.3}); err != nil {
+		t.Fatalf("Add working: %v", err)
+	}
+	if _, err := mgr.Add(ctx, coremem.KindEpisodic, coremem.MemoryItem{Content: "e1", Importance: 0.5}); err != nil {
+		t.Fatalf("Add episodic: %v", err)
+	}
+	if _, err := mgr.Add(ctx, coremem.KindSemantic, coremem.MemoryItem{Content: "s1", Tags: []string{"tag"}, Importance: 0.7}); err != nil {
+		t.Fatalf("Add semantic: %v", err)
+	}
+
+	// Export → persisted via SQLiteStore.Save under key "session-rt".
+	exported, err := mgr.ExportAll(ctx, "session-rt")
+	if err != nil {
+		t.Fatalf("ExportAll: %v", err)
+	}
+	if len(exported) != 3 {
+		t.Fatalf("ExportAll produced %d kinds, want 3", len(exported))
+	}
+
+	// Build a SECOND, empty manager backed by the SAME store and
+	// ImportAll from the persisted snapshots — proves Save was real.
+	mgr2, err := coremem.NewManager(coremem.ManagerOptions{
+		Working:       newCoreWorking(t),
+		Episodic:      newCoreEpisodic(t),
+		Semantic:      newCoreSemantic(t),
+		SnapshotStore: store,
+	})
+	if err != nil {
+		t.Fatalf("NewManager #2: %v", err)
+	}
+	report, err := mgr2.ImportAll(ctx, nil, "session-rt", coremem.ImportReplace)
+	if err != nil {
+		t.Fatalf("ImportAll: %v", err)
+	}
+	if len(report) != 3 {
+		t.Errorf("ImportAll report kinds = %d, want 3", len(report))
+	}
+	for kind, rpt := range report {
+		if rpt.Loaded == 0 {
+			t.Errorf("kind %v: Loaded = 0, want > 0", kind)
+		}
+	}
+
+	// Confirm the restored manager Search returns the expected content.
+	hits, err := mgr2.Search(ctx, coremem.KindEpisodic, "e1", 5)
+	if err != nil {
+		t.Fatalf("Search episodic: %v", err)
+	}
+	if len(hits) == 0 {
+		t.Error("Search returned 0 hits for restored episodic content")
+	}
+}
