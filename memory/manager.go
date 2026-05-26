@@ -242,3 +242,122 @@ func (m *Manager) StatsAll() map[coremem.Kind]coremem.Stats {
 	}
 	return out
 }
+
+// SearchAll fans the query out to every active tier and returns the
+// per-kind result lists. Parity with coremem.Manager.SearchAll: per-
+// kind topK is honored (not a global cap); disabled tiers are omitted
+// from the result map.
+func (m *Manager) SearchAll(ctx context.Context, query string, topK int) (map[coremem.Kind][]coremem.SearchResult, error) {
+	out := make(map[coremem.Kind][]coremem.SearchResult, 3)
+	for _, kind := range []coremem.Kind{coremem.KindWorking, coremem.KindEpisodic, coremem.KindSemantic} {
+		t, _ := m.tierFor(kind)
+		if t.Memory == nil {
+			continue
+		}
+		res, err := t.Memory.Search(ctx, query, topK)
+		if err != nil {
+			return out, fmt.Errorf("memory: manager search %s: %w", kind, err)
+		}
+		out[kind] = res
+	}
+	return out, nil
+}
+
+// ListAll fans the list out to every active tier. For each tier we
+// prefer Tier.Lister; if nil, we fall back to type-asserting
+// Tier.Memory.(coremem.Lister). If neither is available the tier is
+// silently skipped (parity with coremem.Manager.ListAll). cursors is
+// a per-kind map; missing entries start from the beginning.
+func (m *Manager) ListAll(ctx context.Context, filter coremem.ListFilter, pageSize int, cursors map[coremem.Kind]string) (map[coremem.Kind]coremem.ListPage, error) {
+	out := make(map[coremem.Kind]coremem.ListPage, 3)
+	for _, kind := range []coremem.Kind{coremem.KindWorking, coremem.KindEpisodic, coremem.KindSemantic} {
+		t, _ := m.tierFor(kind)
+		if t.Memory == nil {
+			continue
+		}
+		lister := t.Lister
+		if lister == nil {
+			if l, ok := t.Memory.(coremem.Lister); ok {
+				lister = l
+			}
+		}
+		if lister == nil {
+			continue
+		}
+		cursor := ""
+		if cursors != nil {
+			cursor = cursors[kind]
+		}
+		page, err := lister.List(ctx, filter, pageSize, cursor)
+		if err != nil {
+			return out, fmt.Errorf("memory: manager list %s: %w", kind, err)
+		}
+		out[kind] = page
+	}
+	return out, nil
+}
+
+// Consolidate promotes items via the Working tier's LifecycleMemory.
+// Falls back to Options.CoreManager when Working.Lifecycle is nil and
+// a CoreManager was provided. Otherwise returns ErrCapabilityMissing.
+func (m *Manager) Consolidate(ctx context.Context, opts coremem.ConsolidateOptions) (int, error) {
+	if m.opts.Working.Lifecycle != nil {
+		return m.opts.Working.Lifecycle.Consolidate(ctx, opts)
+	}
+	if m.opts.CoreManager != nil {
+		return m.opts.CoreManager.Consolidate(ctx, opts)
+	}
+	return 0, fmt.Errorf("%w: %s.Lifecycle", ErrCapabilityMissing, coremem.KindWorking)
+}
+
+// Forget applies the chosen strategy via the named kind's
+// LifecycleMemory.Forget. Falls back to Options.CoreManager when the
+// tier's Lifecycle is nil and a CoreManager was provided. Otherwise
+// returns ErrCapabilityMissing.
+func (m *Manager) Forget(ctx context.Context, kind coremem.Kind, opts coremem.ForgetOptions) (int, error) {
+	t, err := m.tierFor(kind)
+	if err != nil {
+		return 0, err
+	}
+	if t.Lifecycle != nil {
+		return t.Lifecycle.Forget(ctx, kind, opts)
+	}
+	if m.opts.CoreManager != nil {
+		return m.opts.CoreManager.Forget(ctx, kind, opts)
+	}
+	return 0, fmt.Errorf("%w: %s.Lifecycle", ErrCapabilityMissing, kind)
+}
+
+// coreManagerLifecycle is a small adapter that lets a *coremem.Manager
+// satisfy LifecycleMemory. Construct with NewCoreManagerLifecycle.
+// Useful when wiring a single coremem.Manager into the v1 Manager via
+// Options.Working.Lifecycle = NewCoreManagerLifecycle(coreMgr).
+type coreManagerLifecycle struct {
+	mgr *coremem.Manager
+}
+
+// NewCoreManagerLifecycle returns a LifecycleMemory that forwards
+// Consolidate / Forget to the given *coremem.Manager. Returns nil if
+// mgr is nil — callers should check before assigning.
+func NewCoreManagerLifecycle(mgr *coremem.Manager) LifecycleMemory {
+	if mgr == nil {
+		return nil
+	}
+	return coreManagerLifecycle{mgr: mgr}
+}
+
+// Consolidate forwards to the wrapped *coremem.Manager.Consolidate.
+// The coremem sentinel coremem.ErrConsolidateUnavailable surfaces
+// verbatim so existing errors.Is callers keep working.
+func (a coreManagerLifecycle) Consolidate(ctx context.Context, opts coremem.ConsolidateOptions) (int, error) {
+	return a.mgr.Consolidate(ctx, opts)
+}
+
+// Forget forwards to (*coremem.Manager).Forget.
+func (a coreManagerLifecycle) Forget(ctx context.Context, kind coremem.Kind, opts coremem.ForgetOptions) (int, error) {
+	return a.mgr.Forget(ctx, kind, opts)
+}
+
+// Compile-time check that coreManagerLifecycle satisfies the new
+// LifecycleMemory interface. Catches drift if either signature changes.
+var _ LifecycleMemory = coreManagerLifecycle{}

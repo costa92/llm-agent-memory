@@ -171,3 +171,83 @@ func TestManager_Stats_OnlyActiveTiers(t *testing.T) {
 		t.Errorf("stats has KindEpisodic but tier was not wired: %+v", stats)
 	}
 }
+
+func TestManager_SearchAll_FansAcrossActiveTiers(t *testing.T) {
+	ctx := context.Background()
+	w, e := newCoreWorking(t), newCoreEpisodic(t)
+	mgr, _ := NewManager(Options{
+		Working:  TierOptions{Memory: w},
+		Episodic: TierOptions{Memory: e},
+	})
+	if _, err := mgr.Add(ctx, coremem.KindWorking, coremem.MemoryItem{Content: "wfact"}); err != nil {
+		t.Fatalf("Add working: %v", err)
+	}
+	if _, err := mgr.Add(ctx, coremem.KindEpisodic, coremem.MemoryItem{Content: "efact"}); err != nil {
+		t.Fatalf("Add episodic: %v", err)
+	}
+	got, err := mgr.SearchAll(ctx, "fact", 5)
+	if err != nil {
+		t.Fatalf("SearchAll: %v", err)
+	}
+	if _, ok := got[coremem.KindWorking]; !ok {
+		t.Errorf("SearchAll missing KindWorking entry: %+v", got)
+	}
+	if _, ok := got[coremem.KindEpisodic]; !ok {
+		t.Errorf("SearchAll missing KindEpisodic entry: %+v", got)
+	}
+	if _, ok := got[coremem.KindSemantic]; ok {
+		t.Errorf("SearchAll includes KindSemantic but tier was not wired: %+v", got)
+	}
+}
+
+func TestManager_ListAll_PrefersTierLister_FallsBackToMemoryAssertion(t *testing.T) {
+	ctx := context.Background()
+	w := newCoreWorking(t)
+	mgr, _ := NewManager(Options{Working: TierOptions{Memory: w}})
+	if _, err := mgr.Add(ctx, coremem.KindWorking, coremem.MemoryItem{Content: "list-me"}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	pages, err := mgr.ListAll(ctx, coremem.ListFilter{}, 10, nil)
+	if err != nil {
+		t.Fatalf("ListAll: %v", err)
+	}
+	p := pages[coremem.KindWorking]
+	if len(p.Items) != 1 || p.Items[0].Content != "list-me" {
+		t.Errorf("ListAll Working page = %+v, want one item with Content=list-me", p)
+	}
+}
+
+func TestManager_Consolidate_NoLifecycle_NoCoreManager_ReturnsCapabilityMissing(t *testing.T) {
+	w := newCoreWorking(t)
+	e := newCoreEpisodic(t)
+	mgr, _ := NewManager(Options{
+		Working:  TierOptions{Memory: w},
+		Episodic: TierOptions{Memory: e},
+	})
+	_, err := mgr.Consolidate(context.Background(), coremem.ConsolidateOptions{})
+	if !errors.Is(err, ErrCapabilityMissing) {
+		t.Errorf("Consolidate err = %v, want errors.Is ErrCapabilityMissing", err)
+	}
+}
+
+func TestManager_Consolidate_WithCoreManagerFallback_Succeeds(t *testing.T) {
+	ctx := context.Background()
+	w := newCoreWorking(t)
+	e := newCoreEpisodic(t)
+	coreMgr, _ := coremem.NewManager(coremem.ManagerOptions{Working: w, Episodic: e})
+	mgr, _ := NewManager(Options{
+		Working:     TierOptions{Memory: w},
+		Episodic:    TierOptions{Memory: e},
+		CoreManager: coreMgr,
+	})
+	if _, err := mgr.Add(ctx, coremem.KindWorking, coremem.MemoryItem{Content: "promote me", Importance: 0.9}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	n, err := mgr.Consolidate(ctx, coremem.ConsolidateOptions{Threshold: 0.7})
+	if err != nil {
+		t.Fatalf("Consolidate: %v", err)
+	}
+	if n < 1 {
+		t.Errorf("Consolidate promoted = %d, want >= 1", n)
+	}
+}
