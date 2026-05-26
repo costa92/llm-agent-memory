@@ -75,6 +75,21 @@ func newCoreScopedManager(t *testing.T) *coremem.ScopedManager {
 	return sm
 }
 
+// newCoreWorkingWithCapacity builds a *coremem.WorkingMemory with the
+// requested capacity (24h decay). Use this in pagination tests where the
+// default capacity of 16 from newCoreWorking is too small.
+func newCoreWorkingWithCapacity(t *testing.T, capacity int) *coremem.WorkingMemory {
+	t.Helper()
+	w, err := coremem.NewWorking(newCoreEmbedder(), coremem.WorkingOptions{
+		Capacity: capacity,
+		Decay:    24 * time.Hour,
+	})
+	if err != nil {
+		t.Fatalf("coremem.NewWorking(cap=%d): %v", capacity, err)
+	}
+	return w
+}
+
 // jsonRoundTripSnap encodes then decodes a Snapshot through
 // encoding/json. This forces Metadata maps to use the concrete types
 // that the wire format actually produces (int → float64, etc.) so

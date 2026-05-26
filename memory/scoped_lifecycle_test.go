@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	coremem "github.com/costa92/llm-agent/memory"
@@ -176,5 +177,53 @@ func TestScopedLifecycle_StatsScoped_CountsOnlyMatchingScope(t *testing.T) {
 	}
 	if got := statsB[coremem.KindWorking].Count; got != 1 {
 		t.Errorf("bob working Count = %d, want 1", got)
+	}
+}
+
+func TestScopedLifecycle_ConsolidateScoped_PagesThroughLargeScope(t *testing.T) {
+	// Verify pagination loop: the M1 impl called ListAll with no cursor,
+	// silently capping at one page. With 180 working items above
+	// threshold, the M1 impl would promote at most 100 and silently drop
+	// the remaining 80.
+	sm := newCoreScopedManager(t)
+	// Working capacity in newCoreWorking is 16 — too small for 180.
+	// Build a manager directly with a wide-capacity working memory.
+	mgr, err := coremem.NewManager(coremem.ManagerOptions{
+		Working:  newCoreWorkingWithCapacity(t, 256),
+		Episodic: newCoreEpisodic(t),
+		Semantic: newCoreSemantic(t),
+	})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	wideSM, err := coremem.NewScopedManager(mgr)
+	if err != nil {
+		t.Fatalf("NewScopedManager: %v", err)
+	}
+	_ = sm // pin the helper so unused-var doesn't bite if tests later add it
+
+	slm, err := NewScopedLifecycleManager(wideSM)
+	if err != nil {
+		t.Fatalf("NewScopedLifecycleManager: %v", err)
+	}
+
+	ctx := coremem.WithScope(context.Background(), coremem.Scope{User: "page-user"})
+	const total = 180
+	for i := 0; i < total; i++ {
+		if _, err := wideSM.Add(ctx, coremem.KindWorking, coremem.MemoryItem{
+			Content:    fmt.Sprintf("item-%03d", i),
+			Importance: 0.9,
+		}); err != nil {
+			t.Fatalf("Add #%d: %v", i, err)
+		}
+	}
+
+	n, err := slm.ConsolidateScoped(ctx, coremem.ConsolidateOptions{Threshold: 0.7})
+	if err != nil {
+		t.Fatalf("ConsolidateScoped: %v", err)
+	}
+	if n != total {
+		t.Fatalf("ConsolidateScoped promoted = %d, want %d (pagination dropped %d items)",
+			n, total, total-n)
 	}
 }
