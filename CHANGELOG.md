@@ -6,6 +6,62 @@ documented in this file.
 <!-- Keep a Changelog format: https://keepachangelog.com/en/1.1.0/ -->
 <!-- Semver: https://semver.org/ -->
 
+## [1.0.0] - 2026-05-26
+
+> First major release. See `docs/memory-v1-migration.zh-CN.md` in the
+> umbrella for the full migration guide.
+
+### Added
+
+- **`memory.Manager` (D-1)** — sibling-owned, capability-interface-typed
+  coordinator. Construct via `NewManager(Options{...})`. Each tier's
+  `TierOptions` carries five capability fields — `Memory`, `Lister`,
+  `Exporter`, `Importer`, `Lifecycle` — typed as interfaces. This
+  closes the v0.7 limitation that prevented `coremem.WithSanitizer`-wrapped
+  memories from installing into `coremem.ManagerOptions` (which required
+  a concrete `*coremem.WorkingMemory`).
+- **`LifecycleMemory` interface (D-1)** — `Consolidate(ctx, opts)` +
+  `Forget(ctx, kind, opts)`. New capability that core's
+  `coremem.Manager` performs via package-private access; external
+  backends (Postgres, pgvector) can now implement lifecycle natively.
+  `NewCoreManagerLifecycle(*coremem.Manager)` is the adapter for the
+  bundled case.
+- **`memory.RecallEngine.Recall(ctx, query, opts) (UnifiedRecall, error)` (D-2)** —
+  v1 unified recall facade. Tier-awareness becomes internal. Supports
+  per-tier budgets, tier-selection bitmask, and per-tier provenance.
+- **`memory.RecallOptions` / `memory.UnifiedRecall` / `memory.TierStats` /
+  `memory.TierMask`** — the public surface around `Recall`.
+- **`memory/compat` sub-package** — `LegacyOptions` type alias for
+  `coremem.ManagerOptions`; `NewManagerFromCore(*coremem.Manager)
+  *memory.Manager`; `NewManagerFromLegacyOptions(LegacyOptions)
+  (*memory.Manager, error)`. One-release-window bridge for v0.x
+  callers; removed at v2.0.0.
+
+### Deprecated
+
+- `memory.UnifiedSearcher` — prefer `memory.RecallEngine.Recall`.
+  Remains usable in the v1.x line; removed at v2.0.0.
+- `memory.ParallelSearcher` — prefer `memory.RecallEngine.Recall`.
+  Remains usable in the v1.x line; removed at v2.0.0.
+- `memory/compat.*` — entire sub-package is deprecated on arrival;
+  removed at v2.0.0.
+
+### Dependencies
+
+- **No new third-party deps.** `modernc.org/sqlite v1.50.1` and the
+  transitive closure are unchanged. Pure-Go path preserved.
+
+### Compatibility
+
+- Core `github.com/costa92/llm-agent v0.7.0` is untouched. Sibling
+  v1.0.0 pins core v0.7.0; the v1.x line of the sibling can ship
+  against any v0.7.x of core that preserves the public memory surface.
+- All M1/M2/M3 public APIs (`ScopedLifecycleManager`, `Consolidator`,
+  `WritePolicy`, `PolicyEnforcingMemory`, `PolicyAdapter`, `SQLiteStore`,
+  `Observer`, every event-name constant) are unchanged. The v0.3.0
+  deprecation window has not yet started for any of these — they
+  remain canonical in v1.x.
+
 ## [0.3.0] - 2026-05-26
 
 ### Added
