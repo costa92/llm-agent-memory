@@ -225,3 +225,82 @@ func TestScopedLifecycle_ConsolidateScoped_PagesThroughLargeScope(t *testing.T) 
 			n, total, total-n)
 	}
 }
+
+func TestScopedLifecycle_ForgetScoped_PagesThroughLargeScope(t *testing.T) {
+	mgr, err := coremem.NewManager(coremem.ManagerOptions{
+		Working:  newCoreWorkingWithCapacity(t, 16),
+		Episodic: newCoreEpisodic(t),
+		Semantic: newCoreSemantic(t),
+	})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	wideSM, err := coremem.NewScopedManager(mgr)
+	if err != nil {
+		t.Fatalf("NewScopedManager: %v", err)
+	}
+	slm, err := NewScopedLifecycleManager(wideSM)
+	if err != nil {
+		t.Fatalf("NewScopedLifecycleManager: %v", err)
+	}
+
+	ctx := coremem.WithScope(context.Background(), coremem.Scope{User: "page-forget"})
+	const total = 170
+	for i := 0; i < total; i++ {
+		if _, err := wideSM.Add(ctx, coremem.KindEpisodic, coremem.MemoryItem{
+			Content:    fmt.Sprintf("forgettable-%03d", i),
+			Importance: 0.1,
+		}); err != nil {
+			t.Fatalf("Add #%d: %v", i, err)
+		}
+	}
+
+	n, err := slm.ForgetScoped(ctx, coremem.KindEpisodic, coremem.ForgetOptions{
+		Strategy:  coremem.ForgetByImportance,
+		Threshold: 0.5,
+	})
+	if err != nil {
+		t.Fatalf("ForgetScoped: %v", err)
+	}
+	if n != total {
+		t.Fatalf("ForgetScoped removed = %d, want %d (pagination dropped %d)", n, total, total-n)
+	}
+}
+
+func TestScopedLifecycle_StatsScoped_CountsAllPages(t *testing.T) {
+	mgr, err := coremem.NewManager(coremem.ManagerOptions{
+		Working:  newCoreWorkingWithCapacity(t, 256),
+		Episodic: newCoreEpisodic(t),
+		Semantic: newCoreSemantic(t),
+	})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	wideSM, err := coremem.NewScopedManager(mgr)
+	if err != nil {
+		t.Fatalf("NewScopedManager: %v", err)
+	}
+	slm, err := NewScopedLifecycleManager(wideSM)
+	if err != nil {
+		t.Fatalf("NewScopedLifecycleManager: %v", err)
+	}
+
+	ctx := coremem.WithScope(context.Background(), coremem.Scope{User: "page-stats"})
+	const total = 160
+	for i := 0; i < total; i++ {
+		if _, err := wideSM.Add(ctx, coremem.KindWorking, coremem.MemoryItem{
+			Content:    fmt.Sprintf("countable-%03d", i),
+			Importance: 0.5,
+		}); err != nil {
+			t.Fatalf("Add #%d: %v", i, err)
+		}
+	}
+
+	stats, err := slm.StatsScoped(ctx)
+	if err != nil {
+		t.Fatalf("StatsScoped: %v", err)
+	}
+	if got := stats[coremem.KindWorking].Count; got != total {
+		t.Errorf("StatsScoped Count = %d, want %d", got, total)
+	}
+}

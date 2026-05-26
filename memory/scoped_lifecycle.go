@@ -93,12 +93,11 @@ var timeNow = func() time.Time { return time.Now() }
 // Strategies supported: ForgetByImportance, ForgetByAge, ForgetByCapacity.
 func (s *ScopedLifecycleManager) ForgetScoped(ctx context.Context, kind coremem.Kind, opts coremem.ForgetOptions) (int, error) {
 	mgr := s.sm.Inner()
-	// Enumerate items in this scope via the ctx-aware ListAll.
-	pages, err := s.sm.ListAll(ctx, coremem.ListFilter{}, 100, nil)
+	allItems, err := s.listAllScoped(ctx, 200)
 	if err != nil {
 		return 0, fmt.Errorf("memory: list %s: %w", kind, err)
 	}
-	candidates := pages[kind].Items
+	candidates := allItems[kind]
 	switch opts.Strategy {
 	case coremem.ForgetByImportance:
 		count := 0
@@ -169,21 +168,21 @@ func (s *ScopedLifecycleManager) ForgetScoped(ctx context.Context, kind coremem.
 // (NOT a scope-local cap), because capacity is a per-memory-type
 // attribute, not a per-scope one.
 func (s *ScopedLifecycleManager) StatsScoped(ctx context.Context) (map[coremem.Kind]coremem.Stats, error) {
-	pages, err := s.sm.ListAll(ctx, coremem.ListFilter{}, 100, nil)
+	allItems, err := s.listAllScoped(ctx, 200)
 	if err != nil {
 		return nil, fmt.Errorf("memory: stats list: %w", err)
 	}
 	innerStats := s.sm.Inner().StatsAll()
-	out := make(map[coremem.Kind]coremem.Stats, len(pages))
+	out := make(map[coremem.Kind]coremem.Stats, len(allItems))
 	now := timeNow()
-	for kind, page := range pages {
+	for kind, items := range allItems {
 		var (
-			count   = len(page.Items)
+			count   = len(items)
 			impSum  float64
 			oldest  time.Time
 			hasItem bool
 		)
-		for _, it := range page.Items {
+		for _, it := range items {
 			impSum += it.Importance
 			if !hasItem || it.CreatedAt.Before(oldest) {
 				oldest = it.CreatedAt
@@ -237,7 +236,7 @@ func (s *ScopedLifecycleManager) listAllScoped(ctx context.Context, pageSize int
 	for {
 		pages, err := s.sm.ListAll(ctx, coremem.ListFilter{}, pageSize, cursors)
 		if err != nil {
-			return nil, fmt.Errorf("memory: paged list: %w", err)
+			return nil, fmt.Errorf("paged list: %w", err)
 		}
 		anyMore := false
 		nextCursors := map[coremem.Kind]string{}
