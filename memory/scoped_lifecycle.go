@@ -241,9 +241,7 @@ func (s *ScopedLifecycleManager) listAllScoped(ctx context.Context, pageSize int
 		anyMore := false
 		nextCursors := map[coremem.Kind]string{}
 		for kind, page := range pages {
-			if len(page.Items) > 0 {
-				out[kind] = append(out[kind], page.Items...)
-			}
+			out[kind] = append(out[kind], page.Items...)
 			if page.NextCursor != "" {
 				nextCursors[kind] = page.NextCursor
 				anyMore = true

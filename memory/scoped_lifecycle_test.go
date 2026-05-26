@@ -304,3 +304,54 @@ func TestScopedLifecycle_StatsScoped_CountsAllPages(t *testing.T) {
 		t.Errorf("StatsScoped Count = %d, want %d", got, total)
 	}
 }
+
+func TestScopedLifecycle_StatsScoped_IncludesActiveButEmptyKinds(t *testing.T) {
+	// Regression: prior to the listAllScoped guard fix, an active kind
+	// with zero items in scope was silently dropped from the result map.
+	// M1 returned a populated Capacity for such kinds; assert that
+	// contract is restored.
+	mgr, err := coremem.NewManager(coremem.ManagerOptions{
+		Working:  newCoreWorkingWithCapacity(t, 256),
+		Episodic: newCoreEpisodic(t),
+		Semantic: newCoreSemantic(t),
+	})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	wideSM, err := coremem.NewScopedManager(mgr)
+	if err != nil {
+		t.Fatalf("NewScopedManager: %v", err)
+	}
+	slm, err := NewScopedLifecycleManager(wideSM)
+	if err != nil {
+		t.Fatalf("NewScopedLifecycleManager: %v", err)
+	}
+
+	ctx := coremem.WithScope(context.Background(), coremem.Scope{User: "empty-kinds"})
+	// Add one item only to Working — leave Episodic and Semantic empty.
+	if _, err := wideSM.Add(ctx, coremem.KindWorking, coremem.MemoryItem{
+		Content: "solo", Importance: 0.5,
+	}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	stats, err := slm.StatsScoped(ctx)
+	if err != nil {
+		t.Fatalf("StatsScoped: %v", err)
+	}
+
+	// All 3 active kinds must appear in the result map.
+	for _, k := range []coremem.Kind{coremem.KindWorking, coremem.KindEpisodic, coremem.KindSemantic} {
+		if _, ok := stats[k]; !ok {
+			t.Errorf("stats[%v] missing — active-but-empty kinds must be reported", k)
+		}
+	}
+	// KindWorking: Count=1, Capacity > 0 (from inner StatsAll)
+	if stats[coremem.KindWorking].Count != 1 {
+		t.Errorf("KindWorking Count = %d, want 1", stats[coremem.KindWorking].Count)
+	}
+	// Empty kinds: Count=0, Capacity > 0 (the regression assertion)
+	if stats[coremem.KindEpisodic].Count != 0 {
+		t.Errorf("KindEpisodic Count = %d, want 0", stats[coremem.KindEpisodic].Count)
+	}
+}
