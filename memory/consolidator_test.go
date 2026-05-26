@@ -183,3 +183,38 @@ func TestConsolidator_Consolidate_PagesThroughLargeWorkingSet(t *testing.T) {
 		t.Fatalf("Consolidate promoted = %d, want %d (pagination dropped %d)", n, total, total-n)
 	}
 }
+
+func TestConsolidator_Consolidate_EmitsConsolidatedTotalEvent(t *testing.T) {
+	rec := &recordingObserver{}
+	c, err := NewConsolidator(newCoreManager(t), WithObserver(rec))
+	if err != nil {
+		t.Fatalf("NewConsolidator: %v", err)
+	}
+	ctx := context.Background()
+	mgr := c.mgr
+	if _, err := mgr.Add(ctx, coremem.KindWorking, coremem.MemoryItem{Content: "x", Importance: 0.9}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	if _, err := mgr.Add(ctx, coremem.KindWorking, coremem.MemoryItem{Content: "y", Importance: 0.9}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	if _, err := c.Consolidate(ctx, coremem.ConsolidateOptions{Threshold: 0.7}); err != nil {
+		t.Fatalf("Consolidate: %v", err)
+	}
+
+	got := rec.snapshot()
+	var found *Event
+	for i := range got {
+		if got[i].Name == EventConsolidatedTotal {
+			found = &got[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatalf("no %q event emitted (events: %v)", EventConsolidatedTotal, got)
+	}
+	if n, _ := found.Attrs["n"].(int); n != 2 {
+		t.Errorf("event Attrs[\"n\"] = %v, want 2", found.Attrs["n"])
+	}
+}

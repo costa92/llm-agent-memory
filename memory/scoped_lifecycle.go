@@ -83,6 +83,7 @@ func (s *ScopedLifecycleManager) ConsolidateScoped(ctx context.Context, opts cor
 		}
 		count++
 	}
+	emit(s.observer(), EventConsolidatedTotal, map[string]any{"n": count})
 	return count, nil
 }
 

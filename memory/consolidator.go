@@ -121,6 +121,7 @@ func (c *Consolidator) Consolidate(ctx context.Context, opts coremem.Consolidate
 		}
 		count++
 	}
+	emit(c.observer(), EventConsolidatedTotal, map[string]any{"n": count})
 	return count, nil
 }
 

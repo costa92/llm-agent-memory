@@ -355,3 +355,33 @@ func TestScopedLifecycle_StatsScoped_IncludesActiveButEmptyKinds(t *testing.T) {
 		t.Errorf("KindEpisodic Count = %d, want 0", stats[coremem.KindEpisodic].Count)
 	}
 }
+
+func TestScopedLifecycle_ConsolidateScoped_EmitsConsolidatedTotalEvent(t *testing.T) {
+	rec := &recordingObserver{}
+	slm, err := NewScopedLifecycleManager(newCoreScopedManager(t), WithObserver(rec))
+	if err != nil {
+		t.Fatalf("NewScopedLifecycleManager: %v", err)
+	}
+	ctx := coremem.WithScope(context.Background(), coremem.Scope{User: "obs-user"})
+	if _, err := slm.sm.Add(ctx, coremem.KindWorking, coremem.MemoryItem{Content: "a", Importance: 0.9}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	if _, err := slm.ConsolidateScoped(ctx, coremem.ConsolidateOptions{Threshold: 0.7}); err != nil {
+		t.Fatalf("ConsolidateScoped: %v", err)
+	}
+
+	got := rec.snapshot()
+	var found *Event
+	for i := range got {
+		if got[i].Name == EventConsolidatedTotal {
+			found = &got[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatalf("no %q event emitted (events: %v)", EventConsolidatedTotal, got)
+	}
+	if n, _ := found.Attrs["n"].(int); n != 1 {
+		t.Errorf("event Attrs[\"n\"] = %v, want 1", found.Attrs["n"])
+	}
+}
