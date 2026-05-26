@@ -114,3 +114,84 @@ var ErrRejectedByPolicy = coremem.ErrRejectedByPolicy
 // dropping the reroute. Consumers wanting reroute semantics must
 // use PolicyEnforcingMemory directly.
 var ErrPolicyKindRerouteUnsupported = errors.New("memory: policy adapter cannot reroute kind via Sanitizer interface")
+
+// PolicyEnforcingMemory wraps a *coremem.Manager and routes every Add
+// through the configured WritePolicy. The wrapper does not implement
+// the coremem.Memory interface — its Add takes a ProposedWrite (with
+// Source + Hint context) rather than a bare MemoryItem, because the
+// policy contract is richer than coremem.Memory.Add.
+//
+// Read paths (Get, Search, Update, Remove, Stats, ListAll) are not
+// exposed by this wrapper: policy enforcement is an Add-time concern,
+// and callers needing reads operate on the underlying *coremem.Manager
+// directly. This mirrors the M2 Consolidator pattern (writes only).
+type PolicyEnforcingMemory struct {
+	mgr    *coremem.Manager
+	policy WritePolicy
+	cfg    *config
+}
+
+// ErrPolicyEnforcingManagerRequired is returned when the inner
+// *coremem.Manager is nil.
+var ErrPolicyEnforcingManagerRequired = errors.New("memory: policy-enforcing memory requires manager")
+
+// ErrPolicyRequired is returned when the WritePolicy is nil.
+var ErrPolicyRequired = errors.New("memory: policy-enforcing memory requires a non-nil WritePolicy")
+
+// NewPolicyEnforcingMemory wraps an existing *coremem.Manager with the
+// given policy. opts is the shared functional-option list from
+// observer.go (e.g., WithObserver).
+func NewPolicyEnforcingMemory(inner *coremem.Manager, policy WritePolicy, opts ...Option) (*PolicyEnforcingMemory, error) {
+	if inner == nil {
+		return nil, ErrPolicyEnforcingManagerRequired
+	}
+	if policy == nil {
+		return nil, ErrPolicyRequired
+	}
+	return &PolicyEnforcingMemory{
+		mgr:    inner,
+		policy: policy,
+		cfg:    newConfig(opts),
+	}, nil
+}
+
+// observer exposes the configured observer for in-package call sites
+// and tests. Package-private — callers should not depend on the
+// accessor.
+func (p *PolicyEnforcingMemory) observer() Observer { return p.cfg.observer }
+
+// Add dispatches in through the WritePolicy. On VerdictAccept and
+// VerdictRedact, the decided Item is written to the decided Kind.
+// On VerdictReject, ErrRejectedByPolicy is returned. The EventWrite-
+// PolicyDecided observer event is emitted in all three cases.
+func (p *PolicyEnforcingMemory) Add(ctx context.Context, in ProposedWrite) (string, error) {
+	decision := p.policy.Decide(ctx, in)
+	switch decision.Verdict {
+	case VerdictAccept, VerdictRedact:
+		id, err := p.mgr.Add(ctx, decision.Kind, decision.Item)
+		if err != nil {
+			return "", err
+		}
+		// FIXME(M3-Task4): swap for EventWritePolicyDecided constant
+		emit(p.observer(), "memory_write_policy_decided", map[string]any{
+			"verdict":      string(decision.Verdict),
+			"input_kind":   in.Kind,
+			"decided_kind": decision.Kind,
+			"source":       string(in.Source),
+			"reason":       decision.Reason,
+		})
+		return id, nil
+	case VerdictReject:
+		// FIXME(M3-Task4): swap for EventWritePolicyDecided constant
+		emit(p.observer(), "memory_write_policy_decided", map[string]any{
+			"verdict":      string(decision.Verdict),
+			"input_kind":   in.Kind,
+			"decided_kind": in.Kind, // no reroute happened; mirror input
+			"source":       string(in.Source),
+			"reason":       decision.Reason,
+		})
+		return "", ErrRejectedByPolicy
+	default:
+		return "", errors.New("memory: write policy returned unknown verdict")
+	}
+}
