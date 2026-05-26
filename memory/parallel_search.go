@@ -19,6 +19,10 @@ import (
 // Concurrency primitive: stdlib sync.WaitGroup + buffered channel +
 // context.WithCancel. The module is stdlib-only (master-roadmap §3
 // dependency policy), so we explicitly avoid golang.org/x/sync/errgroup.
+//
+// Error-path note: on a non-disabled per-kind error, SearchAllParallel
+// returns (nil, err); coremem.Manager.SearchAll returns (partialOut, err).
+// Today no in-repo caller consumes the partial map on error.
 type ParallelSearcher struct {
 	mgr *coremem.Manager
 	cfg *config
@@ -62,6 +66,10 @@ type parallelKindResult struct {
 // flight when an error short-circuits the result-collection loop sees
 // ctx.Done(); this is a hardening step for M3+ when callers wire real
 // cancellation semantics — today wg.Wait blocks until all 3 finish.
+//
+// If multiple kinds error, the reported kind is non-deterministic
+// (channel receive order). The error message format includes the
+// offending kind for caller introspection.
 func (p *ParallelSearcher) SearchAllParallel(ctx context.Context, query string, topK int) (map[coremem.Kind][]coremem.SearchResult, error) {
 	kinds := []coremem.Kind{coremem.KindWorking, coremem.KindEpisodic, coremem.KindSemantic}
 	ctx, cancel := context.WithCancel(ctx)

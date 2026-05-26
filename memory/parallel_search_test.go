@@ -90,8 +90,7 @@ func kindsOf(m map[coremem.Kind][]coremem.SearchResult) []coremem.Kind {
 }
 
 // normalizeResults sorts a per-kind result slice by (Score desc, ID asc)
-// so reflect.DeepEqual is independent of any deliberate parallel
-// reordering.
+// so field-aware comparison is independent of parallel reordering.
 func normalizeResults(rs []coremem.SearchResult) []coremem.SearchResult {
 	out := make([]coremem.SearchResult, len(rs))
 	copy(out, rs)
@@ -102,4 +101,27 @@ func normalizeResults(rs []coremem.SearchResult) []coremem.SearchResult {
 		return out[i].Item.ID < out[j].Item.ID
 	})
 	return out
+}
+
+func TestParallelSearcher_SearchAllParallel_FailsFastOnFirstError(t *testing.T) {
+	// Verify SearchAllParallel surfaces a real per-kind error rather
+	// than silently dropping it. We use an empty query, which makes
+	// every active kind return coremem.ErrEmptyQuery — a reproducible
+	// real failure path (no shim required, since coremem.Manager only
+	// accepts the concrete *EpisodicMemory / *WorkingMemory / *SemanticMemory
+	// types and cannot be wired with a Memory-interface mock).
+	//
+	// The intent matches the plan: regression coverage that locks in
+	// the fail-fast contract. If a future refactor swallows errors and
+	// returns (partialMap, nil), this test fires.
+	mgr := newCoreManager(t)
+	ps, err := NewParallelSearcher(mgr)
+	if err != nil {
+		t.Fatalf("NewParallelSearcher: %v", err)
+	}
+
+	_, err = ps.SearchAllParallel(context.Background(), "", 3)
+	if err == nil {
+		t.Fatal("SearchAllParallel returned nil error despite empty query")
+	}
 }
