@@ -1,8 +1,12 @@
 package memory
 
 import (
+	"context"
 	"sync"
 	"testing"
+	"time"
+
+	coremem "github.com/costa92/llm-agent/memory"
 )
 
 // recordingObserver is a thread-safe test observer that captures every
@@ -140,5 +144,55 @@ func TestObserver_UnifiedSearcher_AcceptsWithObserver(t *testing.T) {
 	}
 	if u.observer() != rec {
 		t.Errorf("WithObserver did not install the observer reference")
+	}
+}
+
+func TestObserver_B2_WorkingEvictionStillPicksLowestScoredItem(t *testing.T) {
+	// B-2 — embed-reuse — lives inside coremem.WorkingMemory's private
+	// evictIfOverCapacity. It cannot be wrapped from this sibling. This
+	// test does NOT assert embed call count (that would require an
+	// embedder spy that does not exist in the sibling); it pins the
+	// observable property B-2 promises to preserve: when capacity is
+	// exceeded, the LOWEST-scored item is evicted. When the upstream
+	// optimization lands, this test must continue to pass.
+	w, err := coremem.NewWorking(newCoreEmbedder(), coremem.WorkingOptions{
+		Capacity: 2,
+		Decay:    24 * time.Hour,
+	})
+	if err != nil {
+		t.Fatalf("NewWorking: %v", err)
+	}
+	mgr, err := coremem.NewManager(coremem.ManagerOptions{
+		Working:  w,
+		Episodic: newCoreEpisodic(t),
+		Semantic: newCoreSemantic(t),
+	})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	ctx := context.Background()
+	if _, err := mgr.Add(ctx, coremem.KindWorking, coremem.MemoryItem{Content: "low", Importance: 0.1}); err != nil {
+		t.Fatalf("Add low: %v", err)
+	}
+	if _, err := mgr.Add(ctx, coremem.KindWorking, coremem.MemoryItem{Content: "mid", Importance: 0.5}); err != nil {
+		t.Fatalf("Add mid: %v", err)
+	}
+	if _, err := mgr.Add(ctx, coremem.KindWorking, coremem.MemoryItem{Content: "high", Importance: 0.9}); err != nil {
+		t.Fatalf("Add high (triggers eviction): %v", err)
+	}
+
+	pages, err := mgr.ListAll(ctx, coremem.ListFilter{}, 100, nil)
+	if err != nil {
+		t.Fatalf("ListAll: %v", err)
+	}
+	contents := map[string]bool{}
+	for _, it := range pages[coremem.KindWorking].Items {
+		contents[it.Content] = true
+	}
+	if contents["low"] {
+		t.Errorf("expected the lowest-scored item to be evicted; survivors: %v", contents)
+	}
+	if !contents["high"] {
+		t.Errorf("expected the highest-scored item to survive; survivors: %v", contents)
 	}
 }
