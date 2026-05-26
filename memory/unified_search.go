@@ -9,6 +9,10 @@ import (
 	coremem "github.com/costa92/llm-agent/memory"
 )
 
+// Deprecated: prefer RecallEngine.Recall (v1.0.0). UnifiedSearcher
+// remains in the v1.x line for backwards compatibility; it will be
+// removed at v2.0.0. See docs/memory-v1-migration.zh-CN.md.
+//
 // UnifiedSearcher wraps a *coremem.Manager and exposes SearchUnified,
 // a single cross-tier recall surface that merges, dedupes, sorts, and
 // caps results across Working / Episodic / Semantic. It complements

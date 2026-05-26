@@ -9,6 +9,10 @@ import (
 	coremem "github.com/costa92/llm-agent/memory"
 )
 
+// Deprecated: prefer RecallEngine.Recall (v1.0.0). ParallelSearcher
+// remains in the v1.x line for backwards compatibility; it will be
+// removed at v2.0.0. See docs/memory-v1-migration.zh-CN.md.
+//
 // ParallelSearcher wraps a *coremem.Manager and exposes
 // SearchAllParallel — a drop-in replacement for
 // coremem.Manager.SearchAll that fans out one goroutine per kind by

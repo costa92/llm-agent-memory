@@ -178,3 +178,44 @@ func TestRecallEngine_Recall_PerTierBudget_CapsCandidates(t *testing.T) {
 		t.Errorf("PerTier.Considered = %d, want <= 2 (budget cap)", got.PerTier[coremem.KindWorking].Considered)
 	}
 }
+
+// TestRecallEngine_OverWithSanitizerWrappedManager_NoCast is the
+// joint D-1 + D-2 exit-criterion proof: a WithSanitizer-wrapped Memory
+// installs into a sibling Manager (D-1), and that Manager is then
+// recall-able via RecallEngine.Recall (D-2). The two breaks compose.
+func TestRecallEngine_OverWithSanitizerWrappedManager_NoCast(t *testing.T) {
+	ctx := context.Background()
+	w := newCoreWorking(t)
+	tagger := coremem.SanitizerFunc(func(_ context.Context, _ coremem.Kind, it coremem.MemoryItem) (coremem.MemoryItem, bool, error) {
+		it.Tags = append(it.Tags, "via-sanitizer")
+		return it, true, nil
+	})
+	wrapped := coremem.WithSanitizer(w, tagger)
+	mgr, err := NewManager(Options{Working: TierOptions{Memory: wrapped}})
+	if err != nil {
+		t.Fatalf("NewManager(wrapped): %v", err)
+	}
+	if _, err := mgr.Add(ctx, coremem.KindWorking, coremem.MemoryItem{Content: "alpha"}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	eng, err := NewRecallEngine(mgr)
+	if err != nil {
+		t.Fatalf("NewRecallEngine: %v", err)
+	}
+	got, err := eng.Recall(ctx, "alpha", RecallOptions{TopK: 5})
+	if err != nil {
+		t.Fatalf("Recall: %v", err)
+	}
+	if len(got.Results) == 0 {
+		t.Fatal("Recall returned 0 results, want at least 1")
+	}
+	hasTag := false
+	for _, tag := range got.Results[0].Item.Tags {
+		if tag == "via-sanitizer" {
+			hasTag = true
+		}
+	}
+	if !hasTag {
+		t.Errorf("Result[0].Tags = %v, want via-sanitizer tag — sanitizer chain did not run inside RecallEngine path", got.Results[0].Item.Tags)
+	}
+}
