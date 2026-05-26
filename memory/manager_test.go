@@ -108,3 +108,66 @@ func TestManager_Add_DisabledKind_ReturnsErrTierDisabled(t *testing.T) {
 		t.Errorf("Add to disabled kind err = %v, want errors.Is coremem.ErrKindDisabled (compat)", err)
 	}
 }
+
+func TestManager_GetUpdateRemove_RoundTrip(t *testing.T) {
+	ctx := context.Background()
+	w := newCoreWorking(t)
+	mgr, _ := NewManager(Options{Working: TierOptions{Memory: w}})
+
+	id, err := mgr.Add(ctx, coremem.KindWorking, coremem.MemoryItem{Content: "rt"})
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	got, err := mgr.Get(ctx, coremem.KindWorking, id)
+	if err != nil || got.Content != "rt" {
+		t.Fatalf("Get: got=%+v err=%v", got, err)
+	}
+	if err := mgr.Update(ctx, coremem.KindWorking, id, func(it *coremem.MemoryItem) { it.Content = "rt2" }); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	got2, _ := mgr.Get(ctx, coremem.KindWorking, id)
+	if got2.Content != "rt2" {
+		t.Errorf("after Update, Content = %q, want %q", got2.Content, "rt2")
+	}
+	if err := mgr.Remove(ctx, coremem.KindWorking, id); err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+	if _, err := mgr.Get(ctx, coremem.KindWorking, id); !errors.Is(err, coremem.ErrNotFound) {
+		t.Errorf("Get after Remove err = %v, want errors.Is ErrNotFound", err)
+	}
+}
+
+func TestManager_Search_DispatchesToCorrectTier(t *testing.T) {
+	ctx := context.Background()
+	w, e, s := newCoreWorking(t), newCoreEpisodic(t), newCoreSemantic(t)
+	mgr, _ := NewManager(Options{
+		Working:  TierOptions{Memory: w},
+		Episodic: TierOptions{Memory: e},
+		Semantic: TierOptions{Memory: s},
+	})
+	if _, err := mgr.Add(ctx, coremem.KindEpisodic, coremem.MemoryItem{Content: "episodic-fact"}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	res, err := mgr.Search(ctx, coremem.KindEpisodic, "episodic-fact", 5)
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(res) == 0 {
+		t.Fatal("Search returned 0 results, want at least 1")
+	}
+	if res[0].Item.Content != "episodic-fact" {
+		t.Errorf("res[0].Content = %q, want %q", res[0].Item.Content, "episodic-fact")
+	}
+}
+
+func TestManager_Stats_OnlyActiveTiers(t *testing.T) {
+	w := newCoreWorking(t)
+	mgr, _ := NewManager(Options{Working: TierOptions{Memory: w}})
+	stats := mgr.StatsAll()
+	if _, ok := stats[coremem.KindWorking]; !ok {
+		t.Errorf("stats missing KindWorking entry: %+v", stats)
+	}
+	if _, ok := stats[coremem.KindEpisodic]; ok {
+		t.Errorf("stats has KindEpisodic but tier was not wired: %+v", stats)
+	}
+}

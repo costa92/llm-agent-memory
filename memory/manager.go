@@ -191,3 +191,54 @@ func (m *Manager) Add(ctx context.Context, kind coremem.Kind, item coremem.Memor
 	}
 	return mem.Add(ctx, item)
 }
+
+// Get fetches an item from the named tier.
+func (m *Manager) Get(ctx context.Context, kind coremem.Kind, id string) (coremem.MemoryItem, error) {
+	mem, err := m.requireMemory(kind)
+	if err != nil {
+		return coremem.MemoryItem{}, err
+	}
+	return mem.Get(ctx, id)
+}
+
+// Update mutates an item in the named tier.
+func (m *Manager) Update(ctx context.Context, kind coremem.Kind, id string, fn func(*coremem.MemoryItem)) error {
+	mem, err := m.requireMemory(kind)
+	if err != nil {
+		return err
+	}
+	return mem.Update(ctx, id, fn)
+}
+
+// Remove deletes an item from the named tier.
+func (m *Manager) Remove(ctx context.Context, kind coremem.Kind, id string) error {
+	mem, err := m.requireMemory(kind)
+	if err != nil {
+		return err
+	}
+	return mem.Remove(ctx, id)
+}
+
+// Search runs Memory.Search on one named tier.
+func (m *Manager) Search(ctx context.Context, kind coremem.Kind, query string, topK int) ([]coremem.SearchResult, error) {
+	mem, err := m.requireMemory(kind)
+	if err != nil {
+		return nil, err
+	}
+	return mem.Search(ctx, query, topK)
+}
+
+// StatsAll returns Stats for every active tier. Tiers without a wired
+// Memory are omitted from the result map. Parity with
+// coremem.Manager.StatsAll.
+func (m *Manager) StatsAll() map[coremem.Kind]coremem.Stats {
+	out := make(map[coremem.Kind]coremem.Stats, 3)
+	for _, kind := range []coremem.Kind{coremem.KindWorking, coremem.KindEpisodic, coremem.KindSemantic} {
+		t, _ := m.tierFor(kind)
+		if t.Memory == nil {
+			continue
+		}
+		out[kind] = t.Memory.Stats()
+	}
+	return out
+}
