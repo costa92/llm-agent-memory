@@ -108,6 +108,7 @@ func (c *Consolidator) Consolidate(ctx context.Context, opts coremem.Consolidate
 		if _, err := c.mgr.Add(ctx, coremem.KindEpisodic, clone); err != nil {
 			return count, fmt.Errorf("memory: consolidate add: %w", err)
 		}
+		emit(c.observer(), EventAddTotal, map[string]any{"kind": coremem.KindEpisodic})
 		srcID := it.ID
 		err := c.mgr.Update(ctx, coremem.KindWorking, srcID, func(m *coremem.MemoryItem) {
 			if m.Metadata == nil {
@@ -182,4 +183,28 @@ func (c *Consolidator) listAllPaged(ctx context.Context, pageSize int) (map[core
 		}
 		cursors = nextCursors
 	}
+}
+
+// ExportAll delegates to coremem.Manager.ExportAll and, when an
+// Observer is installed, emits one EventSnapshotItems and one
+// EventSnapshotVectorsBytes per kind in the returned snapshot map.
+// The dir parameter is forwarded verbatim; pass "" for in-memory only.
+func (c *Consolidator) ExportAll(ctx context.Context, dir string) (map[coremem.Kind]coremem.Snapshot, error) {
+	snaps, err := c.mgr.ExportAll(ctx, dir)
+	if err != nil {
+		return nil, err
+	}
+	for kind, snap := range snaps {
+		emit(c.observer(), EventSnapshotItems, map[string]any{
+			"kind": kind, "n": len(snap.Items),
+		})
+		var vbytes int
+		for _, si := range snap.Items {
+			vbytes += len(si.Vector) * 4 // float32 (4 bytes each)
+		}
+		emit(c.observer(), EventSnapshotVectorsBytes, map[string]any{
+			"kind": kind, "bytes": vbytes,
+		})
+	}
+	return snaps, nil
 }

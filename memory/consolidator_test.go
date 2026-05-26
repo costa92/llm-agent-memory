@@ -218,3 +218,80 @@ func TestConsolidator_Consolidate_EmitsConsolidatedTotalEvent(t *testing.T) {
 		t.Errorf("event Attrs[\"n\"] = %v, want 2", found.Attrs["n"])
 	}
 }
+
+func TestConsolidator_Consolidate_EmitsAddTotalPerPromotion(t *testing.T) {
+	rec := &recordingObserver{}
+	mgr := newCoreManager(t)
+	c, err := NewConsolidator(mgr, WithObserver(rec))
+	if err != nil {
+		t.Fatalf("NewConsolidator: %v", err)
+	}
+	ctx := context.Background()
+	if _, err := mgr.Add(ctx, coremem.KindWorking, coremem.MemoryItem{Content: "p1", Importance: 0.9}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	if _, err := mgr.Add(ctx, coremem.KindWorking, coremem.MemoryItem{Content: "p2", Importance: 0.9}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	if _, err := c.Consolidate(ctx, coremem.ConsolidateOptions{Threshold: 0.7}); err != nil {
+		t.Fatalf("Consolidate: %v", err)
+	}
+
+	addCount := 0
+	for _, e := range rec.snapshot() {
+		if e.Name == EventAddTotal {
+			addCount++
+			if k, _ := e.Attrs["kind"].(coremem.Kind); k != coremem.KindEpisodic {
+				t.Errorf("EventAddTotal kind = %v, want %v", e.Attrs["kind"], coremem.KindEpisodic)
+			}
+		}
+	}
+	if addCount != 2 {
+		t.Errorf("EventAddTotal count = %d, want 2 (one per promoted item)", addCount)
+	}
+}
+
+func TestConsolidator_ExportAll_EmitsSnapshotItemsAndVectorBytes(t *testing.T) {
+	rec := &recordingObserver{}
+	mgr := newCoreManager(t)
+	c, err := NewConsolidator(mgr, WithObserver(rec))
+	if err != nil {
+		t.Fatalf("NewConsolidator: %v", err)
+	}
+	ctx := context.Background()
+	if _, err := mgr.Add(ctx, coremem.KindEpisodic, coremem.MemoryItem{Content: "snap-me", Importance: 0.5}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	snaps, err := c.ExportAll(ctx, "")
+	if err != nil {
+		t.Fatalf("ExportAll: %v", err)
+	}
+	if len(snaps[coremem.KindEpisodic].Items) != 1 {
+		t.Fatalf("expected 1 episodic snapshot item, got %d", len(snaps[coremem.KindEpisodic].Items))
+	}
+
+	var items, bytes *Event
+	for _, e := range rec.snapshot() {
+		switch e.Name {
+		case EventSnapshotItems:
+			if k, _ := e.Attrs["kind"].(coremem.Kind); k == coremem.KindEpisodic {
+				items = &e
+			}
+		case EventSnapshotVectorsBytes:
+			if k, _ := e.Attrs["kind"].(coremem.Kind); k == coremem.KindEpisodic {
+				bytes = &e
+			}
+		}
+	}
+	if items == nil {
+		t.Errorf("no %q event for KindEpisodic", EventSnapshotItems)
+	} else if n, _ := items.Attrs["n"].(int); n != 1 {
+		t.Errorf("snapshot items n = %v, want 1", items.Attrs["n"])
+	}
+	if bytes == nil {
+		t.Errorf("no %q event for KindEpisodic", EventSnapshotVectorsBytes)
+	} else if b, _ := bytes.Attrs["bytes"].(int); b <= 0 {
+		t.Errorf("vector bytes = %v, want > 0", bytes.Attrs["bytes"])
+	}
+}
