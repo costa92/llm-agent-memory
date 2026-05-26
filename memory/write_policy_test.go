@@ -236,3 +236,94 @@ func TestPolicyAdapter_Sanitize_RerouteReturnsKindRerouteUnsupported(t *testing.
 		t.Errorf("err = %v, want errors.Is ErrPolicyKindRerouteUnsupported", err)
 	}
 }
+
+func TestPolicyEnforcingMemory_CoversAllFourDocumentedDecisions(t *testing.T) {
+	// Per docs/memory-roadmap.zh-CN.md §4.3 C-1 exit criterion: the
+	// policy interface must cover user-saved, agent-inferred, reject,
+	// and redact decisions. One mgr per case so writes don't bleed
+	// between assertions.
+	cases := []struct {
+		name        string
+		source      WriteSource
+		decide      func(ProposedWrite) WritePolicyDecision
+		wantErr     error // nil for success; ErrRejectedByPolicy for reject
+		wantLanded  bool  // whether to check that an item exists in mgr after Add
+		wantInKind  coremem.Kind
+		wantContent string // exact content to expect in the landed item; "" for reject
+	}{
+		{
+			name:        "user-saved direct to episodic",
+			source:      SourceUserSaved,
+			decide:      func(in ProposedWrite) WritePolicyDecision { return WritePolicyDecision{Verdict: VerdictAccept, Kind: coremem.KindEpisodic, Item: in.Item, Reason: "user-saved-promote"} },
+			wantLanded:  true,
+			wantInKind:  coremem.KindEpisodic,
+			wantContent: "user typed this",
+		},
+		{
+			name:        "agent-inferred routes to working",
+			source:      SourceAgentInferred,
+			decide:      func(in ProposedWrite) WritePolicyDecision { return WritePolicyDecision{Verdict: VerdictAccept, Kind: coremem.KindWorking, Item: in.Item, Reason: "agent-inferred-defer"} },
+			wantLanded:  true,
+			wantInKind:  coremem.KindWorking,
+			wantContent: "agent inferred this",
+		},
+		{
+			name:    "reject pii",
+			source:  SourceAgentInferred,
+			decide:  func(_ ProposedWrite) WritePolicyDecision { return WritePolicyDecision{Verdict: VerdictReject, Reason: "policy:pii"} },
+			wantErr: ErrRejectedByPolicy,
+		},
+		{
+			name:   "redact secret",
+			source: SourceUserSaved,
+			decide: func(in ProposedWrite) WritePolicyDecision {
+				it := in.Item
+				it.Content = "[REDACTED]"
+				return WritePolicyDecision{Verdict: VerdictRedact, Kind: in.Kind, Item: it, Reason: "policy:secret"}
+			},
+			wantLanded:  true,
+			wantInKind:  coremem.KindWorking,
+			wantContent: "[REDACTED]",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			mgr := newCoreManager(t)
+			pem, err := NewPolicyEnforcingMemory(mgr, PolicyFunc(func(_ context.Context, in ProposedWrite) WritePolicyDecision {
+				return tc.decide(in)
+			}))
+			if err != nil {
+				t.Fatalf("NewPolicyEnforcingMemory: %v", err)
+			}
+
+			content := tc.wantContent
+			if content == "" {
+				content = "blocked-content"
+			}
+			id, err := pem.Add(context.Background(), ProposedWrite{
+				Kind:   coremem.KindWorking,
+				Item:   coremem.MemoryItem{Content: content},
+				Source: tc.source,
+			})
+			if tc.wantErr != nil {
+				if !errors.Is(err, tc.wantErr) {
+					t.Fatalf("err = %v, want errors.Is %v", err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Add: %v", err)
+			}
+			if tc.wantLanded {
+				got, err := mgr.Get(context.Background(), tc.wantInKind, id)
+				if err != nil {
+					t.Fatalf("Get (kind=%v): %v", tc.wantInKind, err)
+				}
+				if got.Content != tc.wantContent {
+					t.Errorf("Content = %q, want %q", got.Content, tc.wantContent)
+				}
+			}
+		})
+	}
+}
