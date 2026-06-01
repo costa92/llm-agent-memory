@@ -10,20 +10,27 @@ import (
 )
 
 func TestParallelSearcher_SearchAllParallel_MatchesCoreSearchAll(t *testing.T) {
-	mgr := newCoreManager(t)
+	mgr, err := NewManager(Options{
+		Working:  TierOptions{Memory: newWorking(t)},
+		Episodic: TierOptions{Memory: newEpisodic(t)},
+		Semantic: TierOptions{Memory: newSemantic(t)},
+	})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
 	ps, err := NewParallelSearcher(mgr)
 	if err != nil {
 		t.Fatalf("NewParallelSearcher: %v", err)
 	}
 
 	ctx := context.Background()
-	if _, err := mgr.Add(ctx, coremem.KindWorking, coremem.MemoryItem{Content: "alpha", Importance: 0.5}); err != nil {
+	if _, err := mgr.Add(ctx, coremem.KindWorking, MemoryItem{Content: "alpha", Importance: 0.5}); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
-	if _, err := mgr.Add(ctx, coremem.KindEpisodic, coremem.MemoryItem{Content: "alpha", Importance: 0.5}); err != nil {
+	if _, err := mgr.Add(ctx, coremem.KindEpisodic, MemoryItem{Content: "alpha", Importance: 0.5}); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
-	if _, err := mgr.Add(ctx, coremem.KindSemantic, coremem.MemoryItem{Content: "alpha-guide", Tags: []string{"a"}, Importance: 0.5}); err != nil {
+	if _, err := mgr.Add(ctx, coremem.KindSemantic, MemoryItem{Content: "alpha-guide", Tags: []string{"a"}, Importance: 0.5}); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
 
@@ -68,7 +75,7 @@ func TestParallelSearcher_SearchAllParallel_MatchesCoreSearchAll(t *testing.T) {
 }
 
 // sameKindKeys returns true if a and b have the same set of map keys.
-func sameKindKeys(a, b map[coremem.Kind][]coremem.SearchResult) bool {
+func sameKindKeys(a, b map[Kind][]SearchResult) bool {
 	if len(a) != len(b) {
 		return false
 	}
@@ -80,8 +87,8 @@ func sameKindKeys(a, b map[coremem.Kind][]coremem.SearchResult) bool {
 	return true
 }
 
-func kindsOf(m map[coremem.Kind][]coremem.SearchResult) []coremem.Kind {
-	out := make([]coremem.Kind, 0, len(m))
+func kindsOf(m map[Kind][]SearchResult) []Kind {
+	out := make([]Kind, 0, len(m))
 	for k := range m {
 		out = append(out, k)
 	}
@@ -91,8 +98,8 @@ func kindsOf(m map[coremem.Kind][]coremem.SearchResult) []coremem.Kind {
 
 // normalizeResults sorts a per-kind result slice by (Score desc, ID asc)
 // so field-aware comparison is independent of parallel reordering.
-func normalizeResults(rs []coremem.SearchResult) []coremem.SearchResult {
-	out := make([]coremem.SearchResult, len(rs))
+func normalizeResults(rs []SearchResult) []SearchResult {
+	out := make([]SearchResult, len(rs))
 	copy(out, rs)
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].Score != out[j].Score {
@@ -118,7 +125,14 @@ func TestParallelSearcher_SearchAllParallel_SurfacesPerKindError(t *testing.T) {
 	// The intent matches the plan: regression coverage that locks in
 	// the report-first-error contract. If a future refactor swallows
 	// errors and returns (partialMap, nil), this test fires.
-	mgr := newCoreManager(t)
+	mgr, err := NewManager(Options{
+		Working:  TierOptions{Memory: newWorking(t)},
+		Episodic: TierOptions{Memory: newEpisodic(t)},
+		Semantic: TierOptions{Memory: newSemantic(t)},
+	})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
 	ps, err := NewParallelSearcher(mgr)
 	if err != nil {
 		t.Fatalf("NewParallelSearcher: %v", err)

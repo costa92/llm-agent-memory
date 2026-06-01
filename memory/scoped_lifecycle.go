@@ -9,7 +9,7 @@ import (
 	coremem "github.com/costa92/llm-agent/memory"
 )
 
-// ScopedLifecycleManager wraps a *coremem.ScopedManager and adds three
+// ScopedLifecycleManager wraps a sibling *ScopedManager and adds three
 // lifecycle methods that honor the ctx scope (closing the v0.7 gap on
 // coremem.ScopedManager: Consolidate / Forget / StatsAll all ignore
 // scope upstream — see llm-agent/memory/scoped_manager.go:128-144).
@@ -19,7 +19,7 @@ import (
 // implement), filter by ctx scope using coremem's matching rules, then
 // act on only the matching IDs.
 type ScopedLifecycleManager struct {
-	sm  *coremem.ScopedManager
+	sm  *ScopedManager
 	cfg *config
 }
 
@@ -31,12 +31,12 @@ type forgetPair struct {
 }
 
 // ErrScopedManagerRequired is returned by NewScopedLifecycleManager
-// when the inner *coremem.ScopedManager is nil.
+// when the inner *ScopedManager is nil.
 var ErrScopedManagerRequired = errors.New("memory: scoped manager required")
 
-// NewScopedLifecycleManager wraps an existing *coremem.ScopedManager.
+// NewScopedLifecycleManager wraps an existing sibling *ScopedManager.
 // Returns ErrScopedManagerRequired if inner is nil.
-func NewScopedLifecycleManager(inner *coremem.ScopedManager, opts ...Option) (*ScopedLifecycleManager, error) {
+func NewScopedLifecycleManager(inner *ScopedManager, opts ...Option) (*ScopedLifecycleManager, error) {
 	if inner == nil {
 		return nil, ErrScopedManagerRequired
 	}
@@ -53,7 +53,7 @@ func (s *ScopedLifecycleManager) observer() Observer { return s.cfg.observer }
 //
 // Threshold defaults to 0.7 if unset, mirroring coremem.Consolidate.
 // MinAge is honored verbatim.
-func (s *ScopedLifecycleManager) ConsolidateScoped(ctx context.Context, opts coremem.ConsolidateOptions) (int, error) {
+func (s *ScopedLifecycleManager) ConsolidateScoped(ctx context.Context, opts ConsolidateOptions) (int, error) {
 	if opts.Threshold <= 0 {
 		opts.Threshold = 0.7
 	}
@@ -97,7 +97,7 @@ var timeNow = func() time.Time { return time.Now() }
 //
 // Pinned items are always skipped, mirroring coremem.Manager.Forget.
 // Strategies supported: ForgetByImportance, ForgetByAge, ForgetByCapacity.
-func (s *ScopedLifecycleManager) ForgetScoped(ctx context.Context, kind coremem.Kind, opts coremem.ForgetOptions) (int, error) {
+func (s *ScopedLifecycleManager) ForgetScoped(ctx context.Context, kind Kind, opts ForgetOptions) (int, error) {
 	mgr := s.sm.Inner()
 	allItems, err := s.listAllScoped(ctx, 200)
 	if err != nil {
@@ -108,7 +108,7 @@ func (s *ScopedLifecycleManager) ForgetScoped(ctx context.Context, kind coremem.
 	switch opts.Strategy {
 	case coremem.ForgetByImportance:
 		for _, it := range candidates {
-			if coremem.IsPinned(it) {
+			if IsPinned(it) {
 				continue
 			}
 			if it.Importance < opts.Threshold {
@@ -123,7 +123,7 @@ func (s *ScopedLifecycleManager) ForgetScoped(ctx context.Context, kind coremem.
 		}
 		now := timeNow()
 		for _, it := range candidates {
-			if coremem.IsPinned(it) {
+			if IsPinned(it) {
 				continue
 			}
 			if now.Sub(it.CreatedAt) > opts.MaxAge {
@@ -141,7 +141,7 @@ func (s *ScopedLifecycleManager) ForgetScoped(ctx context.Context, kind coremem.
 		// get removed).
 		all := make([]forgetPair, 0, len(candidates))
 		for _, it := range candidates {
-			if coremem.IsPinned(it) {
+			if IsPinned(it) {
 				continue
 			}
 			all = append(all, forgetPair{it.ID, it.Importance})
@@ -170,13 +170,13 @@ func (s *ScopedLifecycleManager) ForgetScoped(ctx context.Context, kind coremem.
 // Returned Stats.Capacity mirrors the underlying memory's capacity
 // (NOT a scope-local cap), because capacity is a per-memory-type
 // attribute, not a per-scope one.
-func (s *ScopedLifecycleManager) StatsScoped(ctx context.Context) (map[coremem.Kind]coremem.Stats, error) {
+func (s *ScopedLifecycleManager) StatsScoped(ctx context.Context) (map[Kind]Stats, error) {
 	allItems, err := s.listAllScoped(ctx, 200)
 	if err != nil {
 		return nil, fmt.Errorf("memory: stats list: %w", err)
 	}
 	innerStats := s.sm.Inner().StatsAll()
-	out := make(map[coremem.Kind]coremem.Stats, len(allItems))
+	out := make(map[Kind]Stats, len(allItems))
 	now := timeNow()
 	for kind, items := range allItems {
 		var (
@@ -200,7 +200,7 @@ func (s *ScopedLifecycleManager) StatsScoped(ctx context.Context) (map[coremem.K
 		if hasItem {
 			oldestAge = now.Sub(oldest)
 		}
-		out[kind] = coremem.Stats{
+		out[kind] = Stats{
 			Count:         count,
 			Capacity:      innerStats[kind].Capacity,
 			OldestAge:     oldestAge,
@@ -230,19 +230,19 @@ func sortPairsByImpAsc(pairs []forgetPair) {
 // This closes the silent-truncation bug in the M1 helpers, which
 // called ListAll once with no cursor and capped per-call processing at
 // a single page.
-func (s *ScopedLifecycleManager) listAllScoped(ctx context.Context, pageSize int) (map[coremem.Kind][]coremem.MemoryItem, error) {
+func (s *ScopedLifecycleManager) listAllScoped(ctx context.Context, pageSize int) (map[Kind][]MemoryItem, error) {
 	if pageSize <= 0 {
 		pageSize = 200
 	}
-	out := make(map[coremem.Kind][]coremem.MemoryItem)
-	cursors := map[coremem.Kind]string{}
+	out := make(map[Kind][]MemoryItem)
+	cursors := map[Kind]string{}
 	for {
-		pages, err := s.sm.ListAll(ctx, coremem.ListFilter{}, pageSize, cursors)
+		pages, err := s.sm.ListAll(ctx, ListFilter{}, pageSize, cursors)
 		if err != nil {
 			return nil, fmt.Errorf("paged list: %w", err)
 		}
 		anyMore := false
-		nextCursors := map[coremem.Kind]string{}
+		nextCursors := map[Kind]string{}
 		for kind, page := range pages {
 			out[kind] = append(out[kind], page.Items...)
 			if page.NextCursor != "" {

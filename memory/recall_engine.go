@@ -6,8 +6,7 @@
 // Composition: RecallEngine wraps a *Manager (the D-1 surface), not
 // a *coremem.Manager — the sibling Manager IS the v1 interface
 // dispatcher, and reusing it keeps the tier-routing logic single-
-// sourced. Callers wired to a legacy *coremem.Manager bridge through
-// memory/compat.NewManagerFromCore.
+// sourced.
 //
 // Algorithm: see (*RecallEngine).Recall godoc.
 package memory
@@ -51,7 +50,7 @@ type RecallOptions struct {
 	// returns TopK candidates (matches the legacy UnifiedSearcher
 	// semantics). A tier present with a value <=0 is treated as
 	// "use TopK".
-	Budgets map[coremem.Kind]int
+	Budgets map[Kind]int
 
 	// IncludeProvenance, when true, populates UnifiedRecall.PerTier
 	// with per-tier Considered/Returned counts. Default false to keep
@@ -67,8 +66,8 @@ type TierStats struct {
 
 // UnifiedRecall is the single recall result type. Frozen at v1.0.0.
 type UnifiedRecall struct {
-	Results      []coremem.SearchResult
-	PerTier      map[coremem.Kind]TierStats
+	Results      []SearchResult
+	PerTier      map[Kind]TierStats
 	TotalDropped int
 }
 
@@ -97,8 +96,8 @@ func (r *RecallEngine) observer() Observer { return r.cfg.observer }
 // recallKindResult is the per-tier work item exchanged through the
 // buffered channel during fan-out.
 type recallKindResult struct {
-	kind    coremem.Kind
-	results []coremem.SearchResult
+	kind    Kind
+	results []SearchResult
 	err     error
 }
 
@@ -135,7 +134,7 @@ func (r *RecallEngine) Recall(ctx context.Context, query string, opts RecallOpti
 
 	participating := r.participating(opts.Tiers)
 	if len(participating) == 0 {
-		return UnifiedRecall{Results: []coremem.SearchResult{}, PerTier: maybePerTier(opts)}, nil
+		return UnifiedRecall{Results: []SearchResult{}, PerTier: maybePerTier(opts)}, nil
 	}
 
 	ctx, cancel := context.WithCancel(ctx)
@@ -149,7 +148,7 @@ func (r *RecallEngine) Recall(ctx context.Context, query string, opts RecallOpti
 			budget = b
 		}
 		wg.Add(1)
-		go func(k coremem.Kind, lim int) {
+		go func(k Kind, lim int) {
 			defer wg.Done()
 			res, err := r.mgr.Search(ctx, k, query, lim)
 			ch <- recallKindResult{kind: k, results: res, err: err}
@@ -158,7 +157,7 @@ func (r *RecallEngine) Recall(ctx context.Context, query string, opts RecallOpti
 	wg.Wait()
 	close(ch)
 
-	perKind := make(map[coremem.Kind][]coremem.SearchResult, len(participating))
+	perKind := make(map[Kind][]SearchResult, len(participating))
 	for got := range ch {
 		if errors.Is(got.err, coremem.ErrKindDisabled) || errors.Is(got.err, ErrTierDisabled) {
 			continue
@@ -175,14 +174,14 @@ func (r *RecallEngine) Recall(ctx context.Context, query string, opts RecallOpti
 		content string
 	}
 	type dedupeVal struct {
-		result coremem.SearchResult
-		kind   coremem.Kind
+		result SearchResult
+		kind   Kind
 	}
 	best := make(map[dedupeKey]dedupeVal)
-	considered := make(map[coremem.Kind]int, len(perKind))
+	considered := make(map[Kind]int, len(perKind))
 	totalCandidates := 0
 	// Iterate in the canonical tier order so first-write deterministic.
-	for _, kind := range []coremem.Kind{coremem.KindWorking, coremem.KindEpisodic, coremem.KindSemantic} {
+	for _, kind := range []Kind{KindWorking, KindEpisodic, KindSemantic} {
 		results := perKind[kind]
 		considered[kind] = len(results)
 		totalCandidates += len(results)
@@ -196,8 +195,8 @@ func (r *RecallEngine) Recall(ctx context.Context, query string, opts RecallOpti
 	}
 
 	// Materialize merged slice; sort by score desc, ID asc tie-break.
-	merged := make([]coremem.SearchResult, 0, len(best))
-	origin := make(map[dedupeKey]coremem.Kind, len(best))
+	merged := make([]SearchResult, 0, len(best))
+	origin := make(map[dedupeKey]Kind, len(best))
 	for k, v := range best {
 		merged = append(merged, v.result)
 		origin[k] = v.kind
@@ -217,7 +216,7 @@ func (r *RecallEngine) Recall(ctx context.Context, query string, opts RecallOpti
 
 	out := UnifiedRecall{Results: merged, TotalDropped: totalDropped}
 	if opts.IncludeProvenance {
-		perTier := make(map[coremem.Kind]TierStats, len(participating))
+		perTier := make(map[Kind]TierStats, len(participating))
 		for _, kind := range participating {
 			perTier[kind] = TierStats{Considered: considered[kind], Returned: 0}
 		}
@@ -237,21 +236,21 @@ func (r *RecallEngine) Recall(ctx context.Context, query string, opts RecallOpti
 
 // participating returns the canonical-order list of kinds that are
 // both selected by the mask and active on the wrapped Manager.
-func (r *RecallEngine) participating(mask TierMask) []coremem.Kind {
-	pick := func(k coremem.Kind, bit TierMask) (coremem.Kind, bool) {
+func (r *RecallEngine) participating(mask TierMask) []Kind {
+	pick := func(k Kind, bit TierMask) (Kind, bool) {
 		if mask&bit == 0 {
 			return "", false
 		}
 		return k, r.mgr.HasKind(k)
 	}
-	out := make([]coremem.Kind, 0, 3)
-	if k, ok := pick(coremem.KindWorking, TierWorking); ok {
+	out := make([]Kind, 0, 3)
+	if k, ok := pick(KindWorking, TierWorking); ok {
 		out = append(out, k)
 	}
-	if k, ok := pick(coremem.KindEpisodic, TierEpisodic); ok {
+	if k, ok := pick(KindEpisodic, TierEpisodic); ok {
 		out = append(out, k)
 	}
-	if k, ok := pick(coremem.KindSemantic, TierSemantic); ok {
+	if k, ok := pick(KindSemantic, TierSemantic); ok {
 		out = append(out, k)
 	}
 	return out
@@ -260,9 +259,9 @@ func (r *RecallEngine) participating(mask TierMask) []coremem.Kind {
 // maybePerTier returns a non-nil empty PerTier map when provenance is
 // requested even on the zero-tier short-circuit, so callers can rely
 // on a non-nil map shape.
-func maybePerTier(opts RecallOptions) map[coremem.Kind]TierStats {
+func maybePerTier(opts RecallOptions) map[Kind]TierStats {
 	if !opts.IncludeProvenance {
 		return nil
 	}
-	return map[coremem.Kind]TierStats{}
+	return map[Kind]TierStats{}
 }

@@ -24,18 +24,11 @@ documented in this file.
   `Forget(ctx, kind, opts)`. New capability that core's
   `coremem.Manager` performs via package-private access; external
   backends (Postgres, pgvector) can now implement lifecycle natively.
-  `NewCoreManagerLifecycle(*coremem.Manager)` is the adapter for the
-  bundled case.
 - **`memory.RecallEngine.Recall(ctx, query, opts) (UnifiedRecall, error)` (D-2)** —
   v1 unified recall facade. Tier-awareness becomes internal. Supports
   per-tier budgets, tier-selection bitmask, and per-tier provenance.
 - **`memory.RecallOptions` / `memory.UnifiedRecall` / `memory.TierStats` /
   `memory.TierMask`** — the public surface around `Recall`.
-- **`memory/compat` sub-package** — `LegacyOptions` type alias for
-  `coremem.ManagerOptions`; `NewManagerFromCore(*coremem.Manager)
-  *memory.Manager`; `NewManagerFromLegacyOptions(LegacyOptions)
-  (*memory.Manager, error)`. One-release-window bridge for v0.x
-  callers; removed at v2.0.0.
 
 ### Deprecated
 
@@ -43,8 +36,6 @@ documented in this file.
   Remains usable in the v1.x line; removed at v2.0.0.
 - `memory.ParallelSearcher` — prefer `memory.RecallEngine.Recall`.
   Remains usable in the v1.x line; removed at v2.0.0.
-- `memory/compat.*` — entire sub-package is deprecated on arrival;
-  removed at v2.0.0.
 
 ### Dependencies
 
@@ -61,6 +52,7 @@ documented in this file.
   `Observer`, every event-name constant) are unchanged. The v0.3.0
   deprecation window has not yet started for any of these — they
   remain canonical in v1.x.
+
 
 ## [0.3.0] - 2026-05-26
 

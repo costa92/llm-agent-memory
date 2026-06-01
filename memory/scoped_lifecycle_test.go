@@ -9,7 +9,7 @@ import (
 )
 
 func TestScopedLifecycle_ConsolidateScoped_OnlyPromotesMatchingScope(t *testing.T) {
-	sm := newCoreScopedManager(t)
+	sm := newScopedManager(t)
 	slm, err := NewScopedLifecycleManager(sm)
 	if err != nil {
 		t.Fatalf("NewScopedLifecycleManager: %v", err)
@@ -18,17 +18,17 @@ func TestScopedLifecycle_ConsolidateScoped_OnlyPromotesMatchingScope(t *testing.
 	scopeA := coremem.Scope{User: "alice", Project: "p1"}
 	scopeB := coremem.Scope{User: "bob", Project: "p1"}
 
-	ctxA := coremem.WithScope(context.Background(), scopeA)
-	ctxB := coremem.WithScope(context.Background(), scopeB)
+	ctxA := WithScope(context.Background(), scopeA)
+	ctxB := WithScope(context.Background(), scopeB)
 
 	// Alice writes a working item with importance high enough to promote.
-	if _, err := sm.Add(ctxA, coremem.KindWorking, coremem.MemoryItem{
+	if _, err := sm.Add(ctxA, coremem.KindWorking, MemoryItem{
 		Content: "alice note", Importance: 0.9,
 	}); err != nil {
 		t.Fatalf("alice Add: %v", err)
 	}
 	// Bob writes one too.
-	if _, err := sm.Add(ctxB, coremem.KindWorking, coremem.MemoryItem{
+	if _, err := sm.Add(ctxB, coremem.KindWorking, MemoryItem{
 		Content: "bob note", Importance: 0.9,
 	}); err != nil {
 		t.Fatalf("bob Add: %v", err)
@@ -59,7 +59,7 @@ func TestScopedLifecycle_ConsolidateScoped_OnlyPromotesMatchingScope(t *testing.
 }
 
 func TestScopedLifecycle_ConsolidateScoped_DoesNotPromoteOtherScope(t *testing.T) {
-	sm := newCoreScopedManager(t)
+	sm := newScopedManager(t)
 	slm, err := NewScopedLifecycleManager(sm)
 	if err != nil {
 		t.Fatalf("NewScopedLifecycleManager: %v", err)
@@ -68,13 +68,13 @@ func TestScopedLifecycle_ConsolidateScoped_DoesNotPromoteOtherScope(t *testing.T
 	scopeA := coremem.Scope{User: "alice"}
 	scopeB := coremem.Scope{User: "bob"}
 
-	ctxA := coremem.WithScope(context.Background(), scopeA)
-	ctxB := coremem.WithScope(context.Background(), scopeB)
+	ctxA := WithScope(context.Background(), scopeA)
+	ctxB := WithScope(context.Background(), scopeB)
 
-	if _, err := sm.Add(ctxA, coremem.KindWorking, coremem.MemoryItem{Content: "a", Importance: 0.9}); err != nil {
+	if _, err := sm.Add(ctxA, coremem.KindWorking, MemoryItem{Content: "a", Importance: 0.9}); err != nil {
 		t.Fatalf("alice Add: %v", err)
 	}
-	if _, err := sm.Add(ctxB, coremem.KindWorking, coremem.MemoryItem{Content: "b", Importance: 0.9}); err != nil {
+	if _, err := sm.Add(ctxB, coremem.KindWorking, MemoryItem{Content: "b", Importance: 0.9}); err != nil {
 		t.Fatalf("bob Add: %v", err)
 	}
 
@@ -98,7 +98,7 @@ func TestScopedLifecycle_ConsolidateScoped_DoesNotPromoteOtherScope(t *testing.T
 }
 
 func TestScopedLifecycle_ForgetScoped_OnlyDeletesMatchingScope(t *testing.T) {
-	sm := newCoreScopedManager(t)
+	sm := newScopedManager(t)
 	slm, err := NewScopedLifecycleManager(sm)
 	if err != nil {
 		t.Fatalf("NewScopedLifecycleManager: %v", err)
@@ -107,14 +107,14 @@ func TestScopedLifecycle_ForgetScoped_OnlyDeletesMatchingScope(t *testing.T) {
 	scopeA := coremem.Scope{User: "alice"}
 	scopeB := coremem.Scope{User: "bob"}
 
-	ctxA := coremem.WithScope(context.Background(), scopeA)
-	ctxB := coremem.WithScope(context.Background(), scopeB)
+	ctxA := WithScope(context.Background(), scopeA)
+	ctxB := WithScope(context.Background(), scopeB)
 
 	// Both users add a low-importance episodic item.
-	if _, err := sm.Add(ctxA, coremem.KindEpisodic, coremem.MemoryItem{Content: "a", Importance: 0.1}); err != nil {
+	if _, err := sm.Add(ctxA, coremem.KindEpisodic, MemoryItem{Content: "a", Importance: 0.1}); err != nil {
 		t.Fatalf("alice Add: %v", err)
 	}
-	if _, err := sm.Add(ctxB, coremem.KindEpisodic, coremem.MemoryItem{Content: "b", Importance: 0.1}); err != nil {
+	if _, err := sm.Add(ctxB, coremem.KindEpisodic, MemoryItem{Content: "b", Importance: 0.1}); err != nil {
 		t.Fatalf("bob Add: %v", err)
 	}
 
@@ -141,7 +141,7 @@ func TestScopedLifecycle_ForgetScoped_OnlyDeletesMatchingScope(t *testing.T) {
 }
 
 func TestScopedLifecycle_StatsScoped_CountsOnlyMatchingScope(t *testing.T) {
-	sm := newCoreScopedManager(t)
+	sm := newScopedManager(t)
 	slm, err := NewScopedLifecycleManager(sm)
 	if err != nil {
 		t.Fatalf("NewScopedLifecycleManager: %v", err)
@@ -150,16 +150,16 @@ func TestScopedLifecycle_StatsScoped_CountsOnlyMatchingScope(t *testing.T) {
 	scopeA := coremem.Scope{User: "alice"}
 	scopeB := coremem.Scope{User: "bob"}
 
-	ctxA := coremem.WithScope(context.Background(), scopeA)
-	ctxB := coremem.WithScope(context.Background(), scopeB)
+	ctxA := WithScope(context.Background(), scopeA)
+	ctxB := WithScope(context.Background(), scopeB)
 
-	if _, err := sm.Add(ctxA, coremem.KindWorking, coremem.MemoryItem{Content: "a1", Importance: 0.5}); err != nil {
+	if _, err := sm.Add(ctxA, coremem.KindWorking, MemoryItem{Content: "a1", Importance: 0.5}); err != nil {
 		t.Fatalf("alice Add 1: %v", err)
 	}
-	if _, err := sm.Add(ctxA, coremem.KindWorking, coremem.MemoryItem{Content: "a2", Importance: 0.5}); err != nil {
+	if _, err := sm.Add(ctxA, coremem.KindWorking, MemoryItem{Content: "a2", Importance: 0.5}); err != nil {
 		t.Fatalf("alice Add 2: %v", err)
 	}
-	if _, err := sm.Add(ctxB, coremem.KindWorking, coremem.MemoryItem{Content: "b1", Importance: 0.5}); err != nil {
+	if _, err := sm.Add(ctxB, coremem.KindWorking, MemoryItem{Content: "b1", Importance: 0.5}); err != nil {
 		t.Fatalf("bob Add: %v", err)
 	}
 
@@ -187,15 +187,16 @@ func TestScopedLifecycle_ConsolidateScoped_PagesThroughLargeScope(t *testing.T) 
 	// the tail; the cursor-aware Task 2 fix must promote all 180.
 	// Working capacity in newCoreWorking is 16 — too small for 180.
 	// Build a manager directly with a wide-capacity working memory.
-	mgr, err := coremem.NewManager(coremem.ManagerOptions{
-		Working:  newCoreWorkingWithCapacity(t, 256),
-		Episodic: newCoreEpisodic(t),
-		Semantic: newCoreSemantic(t),
+	w, e, s := newWorkingWithCapacity(t, 256), newEpisodic(t), newSemantic(t)
+	mgr, err := NewManager(Options{
+		Working:  TierOptions{Memory: w, Lister: w, Exporter: w, Importer: w},
+		Episodic: TierOptions{Memory: e, Lister: e, Exporter: e, Importer: e},
+		Semantic: TierOptions{Memory: s, Lister: s, Exporter: s, Importer: s},
 	})
 	if err != nil {
 		t.Fatalf("NewManager: %v", err)
 	}
-	wideSM, err := coremem.NewScopedManager(mgr)
+	wideSM, err := NewScopedManager(mgr)
 	if err != nil {
 		t.Fatalf("NewScopedManager: %v", err)
 	}
@@ -205,10 +206,10 @@ func TestScopedLifecycle_ConsolidateScoped_PagesThroughLargeScope(t *testing.T) 
 		t.Fatalf("NewScopedLifecycleManager: %v", err)
 	}
 
-	ctx := coremem.WithScope(context.Background(), coremem.Scope{User: "page-user"})
+	ctx := WithScope(context.Background(), coremem.Scope{User: "page-user"})
 	const total = 180
 	for i := 0; i < total; i++ {
-		if _, err := wideSM.Add(ctx, coremem.KindWorking, coremem.MemoryItem{
+		if _, err := wideSM.Add(ctx, coremem.KindWorking, MemoryItem{
 			Content:    fmt.Sprintf("item-%03d", i),
 			Importance: 0.9,
 		}); err != nil {
@@ -227,15 +228,16 @@ func TestScopedLifecycle_ConsolidateScoped_PagesThroughLargeScope(t *testing.T) 
 }
 
 func TestScopedLifecycle_ForgetScoped_PagesThroughLargeScope(t *testing.T) {
-	mgr, err := coremem.NewManager(coremem.ManagerOptions{
-		Working:  newCoreWorkingWithCapacity(t, 16),
-		Episodic: newCoreEpisodic(t),
-		Semantic: newCoreSemantic(t),
+	w, e, s := newWorkingWithCapacity(t, 16), newEpisodic(t), newSemantic(t)
+	mgr, err := NewManager(Options{
+		Working:  TierOptions{Memory: w, Lister: w, Exporter: w, Importer: w},
+		Episodic: TierOptions{Memory: e, Lister: e, Exporter: e, Importer: e},
+		Semantic: TierOptions{Memory: s, Lister: s, Exporter: s, Importer: s},
 	})
 	if err != nil {
 		t.Fatalf("NewManager: %v", err)
 	}
-	wideSM, err := coremem.NewScopedManager(mgr)
+	wideSM, err := NewScopedManager(mgr)
 	if err != nil {
 		t.Fatalf("NewScopedManager: %v", err)
 	}
@@ -244,10 +246,10 @@ func TestScopedLifecycle_ForgetScoped_PagesThroughLargeScope(t *testing.T) {
 		t.Fatalf("NewScopedLifecycleManager: %v", err)
 	}
 
-	ctx := coremem.WithScope(context.Background(), coremem.Scope{User: "page-forget"})
+	ctx := WithScope(context.Background(), coremem.Scope{User: "page-forget"})
 	const total = 170
 	for i := 0; i < total; i++ {
-		if _, err := wideSM.Add(ctx, coremem.KindEpisodic, coremem.MemoryItem{
+		if _, err := wideSM.Add(ctx, coremem.KindEpisodic, MemoryItem{
 			Content:    fmt.Sprintf("forgettable-%03d", i),
 			Importance: 0.1,
 		}); err != nil {
@@ -268,15 +270,16 @@ func TestScopedLifecycle_ForgetScoped_PagesThroughLargeScope(t *testing.T) {
 }
 
 func TestScopedLifecycle_StatsScoped_CountsAllPages(t *testing.T) {
-	mgr, err := coremem.NewManager(coremem.ManagerOptions{
-		Working:  newCoreWorkingWithCapacity(t, 256),
-		Episodic: newCoreEpisodic(t),
-		Semantic: newCoreSemantic(t),
+	w, e, s := newWorkingWithCapacity(t, 256), newEpisodic(t), newSemantic(t)
+	mgr, err := NewManager(Options{
+		Working:  TierOptions{Memory: w, Lister: w, Exporter: w, Importer: w},
+		Episodic: TierOptions{Memory: e, Lister: e, Exporter: e, Importer: e},
+		Semantic: TierOptions{Memory: s, Lister: s, Exporter: s, Importer: s},
 	})
 	if err != nil {
 		t.Fatalf("NewManager: %v", err)
 	}
-	wideSM, err := coremem.NewScopedManager(mgr)
+	wideSM, err := NewScopedManager(mgr)
 	if err != nil {
 		t.Fatalf("NewScopedManager: %v", err)
 	}
@@ -285,10 +288,10 @@ func TestScopedLifecycle_StatsScoped_CountsAllPages(t *testing.T) {
 		t.Fatalf("NewScopedLifecycleManager: %v", err)
 	}
 
-	ctx := coremem.WithScope(context.Background(), coremem.Scope{User: "page-stats"})
+	ctx := WithScope(context.Background(), coremem.Scope{User: "page-stats"})
 	const total = 160
 	for i := 0; i < total; i++ {
-		if _, err := wideSM.Add(ctx, coremem.KindWorking, coremem.MemoryItem{
+		if _, err := wideSM.Add(ctx, coremem.KindWorking, MemoryItem{
 			Content:    fmt.Sprintf("countable-%03d", i),
 			Importance: 0.5,
 		}); err != nil {
@@ -310,15 +313,16 @@ func TestScopedLifecycle_StatsScoped_IncludesActiveButEmptyKinds(t *testing.T) {
 	// with zero items in scope was silently dropped from the result map.
 	// M1 returned a populated Capacity for such kinds; assert that
 	// contract is restored.
-	mgr, err := coremem.NewManager(coremem.ManagerOptions{
-		Working:  newCoreWorkingWithCapacity(t, 256),
-		Episodic: newCoreEpisodic(t),
-		Semantic: newCoreSemantic(t),
+	w, e, s := newWorkingWithCapacity(t, 256), newEpisodic(t), newSemantic(t)
+	mgr, err := NewManager(Options{
+		Working:  TierOptions{Memory: w, Lister: w, Exporter: w, Importer: w},
+		Episodic: TierOptions{Memory: e, Lister: e, Exporter: e, Importer: e},
+		Semantic: TierOptions{Memory: s, Lister: s, Exporter: s, Importer: s},
 	})
 	if err != nil {
 		t.Fatalf("NewManager: %v", err)
 	}
-	wideSM, err := coremem.NewScopedManager(mgr)
+	wideSM, err := NewScopedManager(mgr)
 	if err != nil {
 		t.Fatalf("NewScopedManager: %v", err)
 	}
@@ -327,9 +331,9 @@ func TestScopedLifecycle_StatsScoped_IncludesActiveButEmptyKinds(t *testing.T) {
 		t.Fatalf("NewScopedLifecycleManager: %v", err)
 	}
 
-	ctx := coremem.WithScope(context.Background(), coremem.Scope{User: "empty-kinds"})
+	ctx := WithScope(context.Background(), coremem.Scope{User: "empty-kinds"})
 	// Add one item only to Working — leave Episodic and Semantic empty.
-	if _, err := wideSM.Add(ctx, coremem.KindWorking, coremem.MemoryItem{
+	if _, err := wideSM.Add(ctx, coremem.KindWorking, MemoryItem{
 		Content: "solo", Importance: 0.5,
 	}); err != nil {
 		t.Fatalf("Add: %v", err)
@@ -358,12 +362,12 @@ func TestScopedLifecycle_StatsScoped_IncludesActiveButEmptyKinds(t *testing.T) {
 
 func TestScopedLifecycle_ConsolidateScoped_EmitsConsolidatedTotalEvent(t *testing.T) {
 	rec := &recordingObserver{}
-	slm, err := NewScopedLifecycleManager(newCoreScopedManager(t), WithObserver(rec))
+	slm, err := NewScopedLifecycleManager(newScopedManager(t), WithObserver(rec))
 	if err != nil {
 		t.Fatalf("NewScopedLifecycleManager: %v", err)
 	}
-	ctx := coremem.WithScope(context.Background(), coremem.Scope{User: "obs-user"})
-	if _, err := slm.sm.Add(ctx, coremem.KindWorking, coremem.MemoryItem{Content: "a", Importance: 0.9}); err != nil {
+	ctx := WithScope(context.Background(), coremem.Scope{User: "obs-user"})
+	if _, err := slm.sm.Add(ctx, coremem.KindWorking, MemoryItem{Content: "a", Importance: 0.9}); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
 	if _, err := slm.ConsolidateScoped(ctx, coremem.ConsolidateOptions{Threshold: 0.7}); err != nil {
@@ -388,12 +392,12 @@ func TestScopedLifecycle_ConsolidateScoped_EmitsConsolidatedTotalEvent(t *testin
 
 func TestScopedLifecycle_ForgetScoped_EmitsForgottenTotalEvent(t *testing.T) {
 	rec := &recordingObserver{}
-	slm, err := NewScopedLifecycleManager(newCoreScopedManager(t), WithObserver(rec))
+	slm, err := NewScopedLifecycleManager(newScopedManager(t), WithObserver(rec))
 	if err != nil {
 		t.Fatalf("NewScopedLifecycleManager: %v", err)
 	}
-	ctx := coremem.WithScope(context.Background(), coremem.Scope{User: "forget-obs"})
-	if _, err := slm.sm.Add(ctx, coremem.KindEpisodic, coremem.MemoryItem{Content: "a", Importance: 0.1}); err != nil {
+	ctx := WithScope(context.Background(), coremem.Scope{User: "forget-obs"})
+	if _, err := slm.sm.Add(ctx, coremem.KindEpisodic, MemoryItem{Content: "a", Importance: 0.1}); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
 	if _, err := slm.ForgetScoped(ctx, coremem.KindEpisodic, coremem.ForgetOptions{

@@ -5,18 +5,16 @@ import (
 	"errors"
 	"fmt"
 	"sort"
-
-	coremem "github.com/costa92/llm-agent/memory"
 )
 
 // Deprecated: prefer RecallEngine.Recall (v1.0.0). UnifiedSearcher
-// remains in the v1.x line for backwards compatibility; it will be
-// removed at v2.0.0. See docs/memory-v1-migration.zh-CN.md.
+// remains as a legacy facade in the v1.x line and will be removed at
+// v2.0.0. See docs/memory-v1-migration.zh-CN.md.
 //
-// UnifiedSearcher wraps a *coremem.Manager and exposes SearchUnified,
+// UnifiedSearcher wraps a sibling *Manager and exposes SearchUnified,
 // a single cross-tier recall surface that merges, dedupes, sorts, and
 // caps results across Working / Episodic / Semantic. It complements
-// (does not replace) coremem.Manager.SearchAll, which keeps the per-
+// (does not replace) Manager.SearchAll, which keeps the per-
 // kind buckets useful for debugging.
 //
 // Score semantics: each tier returns scores in its own scale. v0.1
@@ -24,17 +22,17 @@ import (
 // descending. A future task may introduce per-tier normalization
 // (this is captured in the roadmap as an M1 open question).
 type UnifiedSearcher struct {
-	mgr *coremem.Manager
+	mgr *Manager
 	cfg *config
 }
 
 // ErrUnifiedManagerRequired is returned by NewUnifiedSearcher when the
-// inner *coremem.Manager is nil.
+// inner *Manager is nil.
 var ErrUnifiedManagerRequired = errors.New("memory: unified searcher requires manager")
 
-// NewUnifiedSearcher wraps an existing *coremem.Manager. Returns
+// NewUnifiedSearcher wraps an existing sibling *Manager. Returns
 // ErrUnifiedManagerRequired if inner is nil.
-func NewUnifiedSearcher(inner *coremem.Manager, opts ...Option) (*UnifiedSearcher, error) {
+func NewUnifiedSearcher(inner *Manager, opts ...Option) (*UnifiedSearcher, error) {
 	if inner == nil {
 		return nil, ErrUnifiedManagerRequired
 	}
@@ -55,7 +53,7 @@ func (u *UnifiedSearcher) observer() Observer { return u.cfg.observer }
 // argument the caller provides, so each tier returns its top-topK
 // candidates before merge. This means SearchUnified inspects at most
 // 3 × topK candidates.
-func (u *UnifiedSearcher) SearchUnified(ctx context.Context, query string, topK int) ([]coremem.SearchResult, error) {
+func (u *UnifiedSearcher) SearchUnified(ctx context.Context, query string, topK int) ([]SearchResult, error) {
 	emit(u.observer(), EventSearchTotal, map[string]any{"query_len": len(query)})
 	ps, _ := NewParallelSearcher(u.mgr, WithObserver(u.observer())) // never returns an error when u.mgr is non-nil
 	perKind, err := ps.SearchAllParallel(ctx, query, topK)
@@ -63,8 +61,8 @@ func (u *UnifiedSearcher) SearchUnified(ctx context.Context, query string, topK 
 		return nil, fmt.Errorf("memory: unified search fan-out: %w", err)
 	}
 	// Merge.
-	merged := make([]coremem.SearchResult, 0)
-	for _, kind := range []coremem.Kind{coremem.KindWorking, coremem.KindEpisodic, coremem.KindSemantic} {
+	merged := make([]SearchResult, 0)
+	for _, kind := range []Kind{KindWorking, KindEpisodic, KindSemantic} {
 		merged = append(merged, perKind[kind]...)
 	}
 	// Dedupe by (ID, Content). Keep the highest-scoring entry per key.
@@ -72,7 +70,7 @@ func (u *UnifiedSearcher) SearchUnified(ctx context.Context, query string, topK 
 		id      string
 		content string
 	}
-	best := make(map[key]coremem.SearchResult, len(merged))
+	best := make(map[key]SearchResult, len(merged))
 	for _, r := range merged {
 		k := key{id: r.Item.ID, content: r.Item.Content}
 		prev, ok := best[k]
@@ -80,7 +78,7 @@ func (u *UnifiedSearcher) SearchUnified(ctx context.Context, query string, topK 
 			best[k] = r
 		}
 	}
-	out := make([]coremem.SearchResult, 0, len(best))
+	out := make([]SearchResult, 0, len(best))
 	for _, r := range best {
 		out = append(out, r)
 	}

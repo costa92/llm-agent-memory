@@ -31,15 +31,15 @@ import (
 type WriteSource string
 
 const (
-	// SourceUserSaved means a human explicitly asked to remember this.
+	// WriteSourceUserSaved means a human explicitly asked to remember this.
 	// Policies typically promote these directly to Episodic.
-	SourceUserSaved WriteSource = "user_saved"
-	// SourceAgentInferred means the agent inferred a fact from
+	WriteSourceUserSaved WriteSource = "user_saved"
+	// WriteSourceAgentInferred means the agent inferred a fact from
 	// conversation. Policies typically gate these by importance.
-	SourceAgentInferred WriteSource = "agent_inferred"
-	// SourceSystem means a background process (consolidator,
+	WriteSourceAgentInferred WriteSource = "agent_inferred"
+	// WriteSourceSystem means a background process (consolidator,
 	// importer, migration) is writing. Policies usually pass through.
-	SourceSystem WriteSource = "system"
+	WriteSourceSystem WriteSource = "system"
 )
 
 // Verdict is the policy's decision on a ProposedWrite.
@@ -67,8 +67,8 @@ const (
 // bag of caller context (e.g. the chat-channel ID); core never
 // inspects it.
 type ProposedWrite struct {
-	Kind   coremem.Kind
-	Item   coremem.MemoryItem
+	Kind   Kind
+	Item   MemoryItem
 	Source WriteSource
 	Hint   map[string]any
 }
@@ -78,8 +78,8 @@ type ProposedWrite struct {
 // to core (flows into observer events and reject errors).
 type WritePolicyDecision struct {
 	Verdict Verdict
-	Kind    coremem.Kind
-	Item    coremem.MemoryItem
+	Kind    Kind
+	Item    MemoryItem
 	Reason  string
 }
 
@@ -115,7 +115,7 @@ var ErrRejectedByPolicy = coremem.ErrRejectedByPolicy
 // use PolicyEnforcingMemory directly.
 var ErrPolicyKindRerouteUnsupported = errors.New("memory: policy adapter cannot reroute kind via Sanitizer interface")
 
-// PolicyEnforcingMemory wraps a *coremem.Manager and routes every Add
+// PolicyEnforcingMemory wraps a sibling *Manager and routes every Add
 // through the configured WritePolicy. The wrapper does not implement
 // the coremem.Memory interface — its Add takes a ProposedWrite (with
 // Source + Hint context) rather than a bare MemoryItem, because the
@@ -123,25 +123,25 @@ var ErrPolicyKindRerouteUnsupported = errors.New("memory: policy adapter cannot 
 //
 // Read paths (Get, Search, Update, Remove, Stats, ListAll) are not
 // exposed by this wrapper: policy enforcement is an Add-time concern,
-// and callers needing reads operate on the underlying *coremem.Manager
+// and callers needing reads operate on the underlying *Manager
 // directly. This mirrors the M2 Consolidator pattern (writes only).
 type PolicyEnforcingMemory struct {
-	mgr    *coremem.Manager
+	mgr    *Manager
 	policy WritePolicy
 	cfg    *config
 }
 
 // ErrPolicyEnforcingManagerRequired is returned when the inner
-// *coremem.Manager is nil.
+// *Manager is nil.
 var ErrPolicyEnforcingManagerRequired = errors.New("memory: policy-enforcing memory requires manager")
 
 // ErrPolicyRequired is returned when the WritePolicy is nil.
 var ErrPolicyRequired = errors.New("memory: policy-enforcing memory requires a non-nil WritePolicy")
 
-// NewPolicyEnforcingMemory wraps an existing *coremem.Manager with the
+// NewPolicyEnforcingMemory wraps an existing sibling *Manager with the
 // given policy. opts is the shared functional-option list from
 // observer.go (e.g., WithObserver).
-func NewPolicyEnforcingMemory(inner *coremem.Manager, policy WritePolicy, opts ...Option) (*PolicyEnforcingMemory, error) {
+func NewPolicyEnforcingMemory(inner *Manager, policy WritePolicy, opts ...Option) (*PolicyEnforcingMemory, error) {
 	if inner == nil {
 		return nil, ErrPolicyEnforcingManagerRequired
 	}
@@ -201,7 +201,7 @@ func (p *PolicyEnforcingMemory) Add(ctx context.Context, in ProposedWrite) (stri
 // the wrapped policy returns a Decision.Kind that differs from the
 // input kind, Sanitize returns ErrPolicyKindRerouteUnsupported.
 //
-// Source defaults to SourceSystem for adapter calls because the
+// Source defaults to WriteSourceSystem for adapter calls because the
 // Sanitizer interface carries no source hint. Callers wanting
 // source-specific policy decisions must use PolicyEnforcingMemory
 // directly.
@@ -214,15 +214,15 @@ type PolicyAdapter struct {
 func (a PolicyAdapter) Sanitize(ctx context.Context, kind coremem.Kind, item coremem.MemoryItem) (coremem.MemoryItem, bool, error) {
 	decision := a.Policy.Decide(ctx, ProposedWrite{
 		Kind:   kind,
-		Item:   item,
-		Source: SourceSystem,
+		Item:   memoryItemFromCore(item),
+		Source: WriteSourceSystem,
 	})
 	switch decision.Verdict {
 	case VerdictAccept, VerdictRedact:
 		if decision.Kind != kind {
 			return coremem.MemoryItem{}, false, ErrPolicyKindRerouteUnsupported
 		}
-		return decision.Item, true, nil
+		return memoryItemToCore(decision.Item), true, nil
 	case VerdictReject:
 		return coremem.MemoryItem{}, false, nil
 	default:

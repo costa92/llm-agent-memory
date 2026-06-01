@@ -20,10 +20,6 @@
 // What it does NOT do: this Manager is NOT a coremem.Memory itself.
 // It is a coordinator with a Kind-discriminated dispatch surface
 // mirroring coremem.Manager's public API.
-//
-// Compatibility: the v0.7 coremem.Manager is unaffected. The compat/
-// sub-package provides a one-line bridge for callers wired to
-// coremem.NewManager(coremem.ManagerOptions{...}).
 package memory
 
 import (
@@ -52,8 +48,8 @@ import (
 // kind: apply the chosen strategy (importance / age / capacity) and
 // return the count deleted.
 type LifecycleMemory interface {
-	Consolidate(ctx context.Context, opts coremem.ConsolidateOptions) (int, error)
-	Forget(ctx context.Context, kind coremem.Kind, opts coremem.ForgetOptions) (int, error)
+	Consolidate(ctx context.Context, opts ConsolidateOptions) (int, error)
+	Forget(ctx context.Context, kind Kind, opts ForgetOptions) (int, error)
 }
 
 // TierOptions wires the per-kind capability set. Memory is required;
@@ -64,19 +60,18 @@ type LifecycleMemory interface {
 // Exporter + Importer — for those, a single object can fill four
 // fields:
 //
-//   w, _ := coremem.NewWorking(emb, coremem.WorkingOptions{})
-//   opts.Working = memory.TierOptions{Memory: w, Lister: w, Exporter: w, Importer: w}
+//	w, _ := coremem.NewWorking(emb, coremem.WorkingOptions{})
+//	opts.Working = memory.TierOptions{Memory: w, Lister: w, Exporter: w, Importer: w}
 //
-// Lifecycle requires the explicit LifecycleMemory interface (or a
-// *coremem.Manager-backed adapter — see Options.CoreManager). The
+// Lifecycle requires the explicit LifecycleMemory interface. The
 // bundled types do NOT satisfy LifecycleMemory directly because the
 // operation crosses tier boundaries.
 type TierOptions struct {
-	Memory    coremem.Memory   // required
-	Lister    coremem.Lister   // optional
-	Exporter  coremem.Exporter // optional
-	Importer  coremem.Importer // optional
-	Lifecycle LifecycleMemory  // optional
+	Memory    Memory          // required
+	Lister    Lister          // optional
+	Exporter  Exporter        // optional
+	Importer  Importer        // optional
+	Lifecycle LifecycleMemory // optional
 }
 
 // Options is the v1.0.0 analogue of coremem.ManagerOptions. Pass to
@@ -89,18 +84,7 @@ type Options struct {
 	// SnapshotStore mirrors coremem.ManagerOptions.SnapshotStore. Used
 	// by ExportAll/ImportAll when persistKey != "". Nil keeps
 	// persistence in-memory.
-	SnapshotStore coremem.SnapshotStore
-
-	// CoreManager is an OPTIONAL escape hatch. When non-nil, lifecycle
-	// methods (Consolidate, Forget) on tiers whose Lifecycle field is
-	// nil fall back to delegating into this *coremem.Manager via the
-	// coreManagerLifecycle adapter. Keeps the compat-shim path
-	// ergonomic (one line to bridge a legacy *coremem.Manager into the
-	// new sibling Manager surface).
-	//
-	// CoreManager is consulted ONLY for Lifecycle fallback today. It
-	// does NOT supplant a tier whose Memory field is nil.
-	CoreManager *coremem.Manager
+	SnapshotStore SnapshotStore
 }
 
 // Manager is the sibling-owned, capability-interface-typed coordinator.
@@ -109,6 +93,55 @@ type Options struct {
 // goroutine-safe in the bundled coremem types.
 type Manager struct {
 	opts Options
+}
+
+func asLocalMemory(v any) Memory {
+	switch mem := v.(type) {
+	case nil:
+		return nil
+	case interface {
+		Type() Kind
+		Add(context.Context, MemoryItem) (string, error)
+		Search(context.Context, string, int) ([]SearchResult, error)
+		Get(context.Context, string) (MemoryItem, error)
+		Update(context.Context, string, func(*MemoryItem)) error
+		Remove(context.Context, string) error
+		Stats() Stats
+	}:
+		return mem
+	case coremem.Memory:
+		return AdaptCoreMemory(mem)
+	default:
+		return nil
+	}
+}
+
+func requireLocalMemory(mem Memory) (interface {
+	Type() Kind
+	Add(context.Context, MemoryItem) (string, error)
+	Search(context.Context, string, int) ([]SearchResult, error)
+	Get(context.Context, string) (MemoryItem, error)
+	Update(context.Context, string, func(*MemoryItem)) error
+	Remove(context.Context, string) error
+	Stats() Stats
+}, error) {
+	local := asLocalMemory(mem)
+	if local == nil {
+		return nil, fmt.Errorf("memory: unsupported Memory implementation %T", mem)
+	}
+	typed, ok := local.(interface {
+		Type() Kind
+		Add(context.Context, MemoryItem) (string, error)
+		Search(context.Context, string, int) ([]SearchResult, error)
+		Get(context.Context, string) (MemoryItem, error)
+		Update(context.Context, string, func(*MemoryItem)) error
+		Remove(context.Context, string) error
+		Stats() Stats
+	})
+	if !ok {
+		return nil, fmt.Errorf("memory: unsupported Memory implementation %T", mem)
+	}
+	return typed, nil
 }
 
 // --- sentinel errors ------------------------------------------------------
@@ -125,8 +158,7 @@ var ErrTierDisabled = fmt.Errorf("memory: tier disabled: %w", coremem.ErrKindDis
 
 // ErrCapabilityMissing is returned when a tier is present but the
 // requested capability (Lister, Lifecycle, etc.) was not wired into
-// its TierOptions and no fallback (e.g. Options.CoreManager) is
-// available. The error message names the kind and the missing
+// its TierOptions. The error message names the kind and the missing
 // capability.
 var ErrCapabilityMissing = errors.New("memory: capability missing on tier")
 
@@ -137,7 +169,7 @@ var ErrUnknownKind = errors.New("memory: unknown kind")
 // NewManager validates opts and returns a *Manager. Returns ErrNoTiers
 // if every tier's Memory is nil.
 func NewManager(opts Options) (*Manager, error) {
-	if opts.Working.Memory == nil && opts.Episodic.Memory == nil && opts.Semantic.Memory == nil && opts.CoreManager == nil {
+	if opts.Working.Memory == nil && opts.Episodic.Memory == nil && opts.Semantic.Memory == nil {
 		return nil, ErrNoTiers
 	}
 	return &Manager{opts: opts}, nil
@@ -146,24 +178,21 @@ func NewManager(opts Options) (*Manager, error) {
 // HasKind reports whether a tier is wired for the given kind. A tier is
 // "wired" iff its TierOptions.Memory is non-nil. Useful for callers
 // that want to branch before calling Add / Search.
-func (m *Manager) HasKind(kind coremem.Kind) bool {
+func (m *Manager) HasKind(kind Kind) bool {
 	switch kind {
 	case coremem.KindWorking, coremem.KindEpisodic, coremem.KindSemantic:
 	default:
 		return false
 	}
 	t, _ := m.tierFor(kind)
-	if t.Memory != nil {
-		return true
-	}
-	return m.opts.CoreManager != nil
+	return asLocalMemory(t.Memory) != nil
 }
 
 // tierFor returns the TierOptions for the given kind. Returns
 // ErrUnknownKind if kind is not one of KindWorking / KindEpisodic /
 // KindSemantic; returns the TierOptions (with possibly-nil Memory)
 // otherwise. Callers must check tier.Memory before dispatching.
-func (m *Manager) tierFor(kind coremem.Kind) (TierOptions, error) {
+func (m *Manager) tierFor(kind Kind) (TierOptions, error) {
 	switch kind {
 	case coremem.KindWorking:
 		return m.opts.Working, nil
@@ -177,23 +206,28 @@ func (m *Manager) tierFor(kind coremem.Kind) (TierOptions, error) {
 }
 
 // requireMemory returns the tier's Memory or ErrTierDisabled.
-func (m *Manager) requireMemory(kind coremem.Kind) (coremem.Memory, error) {
+func (m *Manager) requireMemory(kind Kind) (interface {
+	Type() Kind
+	Add(context.Context, MemoryItem) (string, error)
+	Search(context.Context, string, int) ([]SearchResult, error)
+	Get(context.Context, string) (MemoryItem, error)
+	Update(context.Context, string, func(*MemoryItem)) error
+	Remove(context.Context, string) error
+	Stats() Stats
+}, error) {
 	t, err := m.tierFor(kind)
 	if err != nil {
 		return nil, err
 	}
 	if t.Memory != nil {
-		return t.Memory, nil
-	}
-	if m.opts.CoreManager != nil {
-		return coreManagerMemoryAdapter{mgr: m.opts.CoreManager, kind: kind}, nil
+		return requireLocalMemory(t.Memory)
 	}
 	return nil, fmt.Errorf("memory: manager %s: %w", kind, ErrTierDisabled)
 }
 
 // Add dispatches to the wired tier's Memory.Add. Returns
 // ErrTierDisabled if the kind has no Memory wired.
-func (m *Manager) Add(ctx context.Context, kind coremem.Kind, item coremem.MemoryItem) (string, error) {
+func (m *Manager) Add(ctx context.Context, kind Kind, item MemoryItem) (string, error) {
 	mem, err := m.requireMemory(kind)
 	if err != nil {
 		return "", err
@@ -202,16 +236,16 @@ func (m *Manager) Add(ctx context.Context, kind coremem.Kind, item coremem.Memor
 }
 
 // Get fetches an item from the named tier.
-func (m *Manager) Get(ctx context.Context, kind coremem.Kind, id string) (coremem.MemoryItem, error) {
+func (m *Manager) Get(ctx context.Context, kind Kind, id string) (MemoryItem, error) {
 	mem, err := m.requireMemory(kind)
 	if err != nil {
-		return coremem.MemoryItem{}, err
+		return MemoryItem{}, err
 	}
 	return mem.Get(ctx, id)
 }
 
 // Update mutates an item in the named tier.
-func (m *Manager) Update(ctx context.Context, kind coremem.Kind, id string, fn func(*coremem.MemoryItem)) error {
+func (m *Manager) Update(ctx context.Context, kind Kind, id string, fn func(*MemoryItem)) error {
 	mem, err := m.requireMemory(kind)
 	if err != nil {
 		return err
@@ -220,7 +254,7 @@ func (m *Manager) Update(ctx context.Context, kind coremem.Kind, id string, fn f
 }
 
 // Remove deletes an item from the named tier.
-func (m *Manager) Remove(ctx context.Context, kind coremem.Kind, id string) error {
+func (m *Manager) Remove(ctx context.Context, kind Kind, id string) error {
 	mem, err := m.requireMemory(kind)
 	if err != nil {
 		return err
@@ -229,7 +263,7 @@ func (m *Manager) Remove(ctx context.Context, kind coremem.Kind, id string) erro
 }
 
 // Search runs Memory.Search on one named tier.
-func (m *Manager) Search(ctx context.Context, kind coremem.Kind, query string, topK int) ([]coremem.SearchResult, error) {
+func (m *Manager) Search(ctx context.Context, kind Kind, query string, topK int) ([]SearchResult, error) {
 	mem, err := m.requireMemory(kind)
 	if err != nil {
 		return nil, err
@@ -240,17 +274,19 @@ func (m *Manager) Search(ctx context.Context, kind coremem.Kind, query string, t
 // StatsAll returns Stats for every active tier. Tiers without a wired
 // Memory are omitted from the result map. Parity with
 // coremem.Manager.StatsAll.
-func (m *Manager) StatsAll() map[coremem.Kind]coremem.Stats {
-	if m.coreManagerOnly() {
-		return m.opts.CoreManager.StatsAll()
-	}
-	out := make(map[coremem.Kind]coremem.Stats, 3)
+func (m *Manager) StatsAll() map[Kind]Stats {
+	out := make(map[Kind]Stats, 3)
 	for _, kind := range []coremem.Kind{coremem.KindWorking, coremem.KindEpisodic, coremem.KindSemantic} {
 		t, _ := m.tierFor(kind)
-		if t.Memory == nil {
+		mem := asLocalMemory(t.Memory)
+		if mem == nil {
 			continue
 		}
-		out[kind] = t.Memory.Stats()
+		typed, err := requireLocalMemory(mem)
+		if err != nil {
+			continue
+		}
+		out[kind] = typed.Stats()
 	}
 	return out
 }
@@ -259,17 +295,15 @@ func (m *Manager) StatsAll() map[coremem.Kind]coremem.Stats {
 // per-kind result lists. Parity with coremem.Manager.SearchAll: per-
 // kind topK is honored (not a global cap); disabled tiers are omitted
 // from the result map.
-func (m *Manager) SearchAll(ctx context.Context, query string, topK int) (map[coremem.Kind][]coremem.SearchResult, error) {
-	if m.coreManagerOnly() {
-		return m.opts.CoreManager.SearchAll(ctx, query, topK)
-	}
-	out := make(map[coremem.Kind][]coremem.SearchResult, 3)
+func (m *Manager) SearchAll(ctx context.Context, query string, topK int) (map[Kind][]SearchResult, error) {
+	out := make(map[Kind][]SearchResult, 3)
 	for _, kind := range []coremem.Kind{coremem.KindWorking, coremem.KindEpisodic, coremem.KindSemantic} {
 		t, _ := m.tierFor(kind)
-		if t.Memory == nil {
+		mem, err := requireLocalMemory(t.Memory)
+		if err != nil {
 			continue
 		}
-		res, err := t.Memory.Search(ctx, query, topK)
+		res, err := mem.Search(ctx, query, topK)
 		if err != nil {
 			return out, fmt.Errorf("memory: manager search %s: %w", kind, err)
 		}
@@ -283,20 +317,20 @@ func (m *Manager) SearchAll(ctx context.Context, query string, topK int) (map[co
 // Tier.Memory.(coremem.Lister). If neither is available the tier is
 // silently skipped (parity with coremem.Manager.ListAll). cursors is
 // a per-kind map; missing entries start from the beginning.
-func (m *Manager) ListAll(ctx context.Context, filter coremem.ListFilter, pageSize int, cursors map[coremem.Kind]string) (map[coremem.Kind]coremem.ListPage, error) {
-	if m.coreManagerOnly() {
-		return m.opts.CoreManager.ListAll(ctx, filter, pageSize, cursors)
-	}
-	out := make(map[coremem.Kind]coremem.ListPage, 3)
+func (m *Manager) ListAll(ctx context.Context, filter ListFilter, pageSize int, cursors map[Kind]string) (map[Kind]ListPage, error) {
+	out := make(map[Kind]ListPage, 3)
 	for _, kind := range []coremem.Kind{coremem.KindWorking, coremem.KindEpisodic, coremem.KindSemantic} {
 		t, _ := m.tierFor(kind)
-		if t.Memory == nil {
+		mem := asLocalMemory(t.Memory)
+		if mem == nil {
 			continue
 		}
 		lister := t.Lister
 		if lister == nil {
-			if l, ok := t.Memory.(coremem.Lister); ok {
+			if l, ok := t.Memory.(Lister); ok {
 				lister = l
+			} else if l, ok := t.Memory.(coremem.Lister); ok {
+				lister = AdaptCoreLister(l)
 			}
 		}
 		if lister == nil {
@@ -316,23 +350,18 @@ func (m *Manager) ListAll(ctx context.Context, filter coremem.ListFilter, pageSi
 }
 
 // Consolidate promotes items via the Working tier's LifecycleMemory.
-// Falls back to Options.CoreManager when Working.Lifecycle is nil and
-// a CoreManager was provided. Otherwise returns ErrCapabilityMissing.
-func (m *Manager) Consolidate(ctx context.Context, opts coremem.ConsolidateOptions) (int, error) {
+// Returns ErrCapabilityMissing when Working.Lifecycle is nil.
+func (m *Manager) Consolidate(ctx context.Context, opts ConsolidateOptions) (int, error) {
 	if m.opts.Working.Lifecycle != nil {
 		return m.opts.Working.Lifecycle.Consolidate(ctx, opts)
-	}
-	if m.opts.CoreManager != nil {
-		return m.opts.CoreManager.Consolidate(ctx, opts)
 	}
 	return 0, fmt.Errorf("%w: %s.Lifecycle", ErrCapabilityMissing, coremem.KindWorking)
 }
 
 // Forget applies the chosen strategy via the named kind's
-// LifecycleMemory.Forget. Falls back to Options.CoreManager when the
-// tier's Lifecycle is nil and a CoreManager was provided. Otherwise
-// returns ErrCapabilityMissing.
-func (m *Manager) Forget(ctx context.Context, kind coremem.Kind, opts coremem.ForgetOptions) (int, error) {
+// LifecycleMemory.Forget. Returns ErrCapabilityMissing when the tier's
+// Lifecycle is nil.
+func (m *Manager) Forget(ctx context.Context, kind Kind, opts ForgetOptions) (int, error) {
 	t, err := m.tierFor(kind)
 	if err != nil {
 		return 0, err
@@ -340,45 +369,8 @@ func (m *Manager) Forget(ctx context.Context, kind coremem.Kind, opts coremem.Fo
 	if t.Lifecycle != nil {
 		return t.Lifecycle.Forget(ctx, kind, opts)
 	}
-	if m.opts.CoreManager != nil {
-		return m.opts.CoreManager.Forget(ctx, kind, opts)
-	}
 	return 0, fmt.Errorf("%w: %s.Lifecycle", ErrCapabilityMissing, kind)
 }
-
-// coreManagerLifecycle is a small adapter that lets a *coremem.Manager
-// satisfy LifecycleMemory. Construct with NewCoreManagerLifecycle.
-// Useful when wiring a single coremem.Manager into the v1 Manager via
-// Options.Working.Lifecycle = NewCoreManagerLifecycle(coreMgr).
-type coreManagerLifecycle struct {
-	mgr *coremem.Manager
-}
-
-// NewCoreManagerLifecycle returns a LifecycleMemory that forwards
-// Consolidate / Forget to the given *coremem.Manager. Returns nil if
-// mgr is nil — callers should check before assigning.
-func NewCoreManagerLifecycle(mgr *coremem.Manager) LifecycleMemory {
-	if mgr == nil {
-		return nil
-	}
-	return coreManagerLifecycle{mgr: mgr}
-}
-
-// Consolidate forwards to the wrapped *coremem.Manager.Consolidate.
-// The coremem sentinel coremem.ErrConsolidateUnavailable surfaces
-// verbatim so existing errors.Is callers keep working.
-func (a coreManagerLifecycle) Consolidate(ctx context.Context, opts coremem.ConsolidateOptions) (int, error) {
-	return a.mgr.Consolidate(ctx, opts)
-}
-
-// Forget forwards to (*coremem.Manager).Forget.
-func (a coreManagerLifecycle) Forget(ctx context.Context, kind coremem.Kind, opts coremem.ForgetOptions) (int, error) {
-	return a.mgr.Forget(ctx, kind, opts)
-}
-
-// Compile-time check that coreManagerLifecycle satisfies the new
-// LifecycleMemory interface. Catches drift if either signature changes.
-var _ LifecycleMemory = coreManagerLifecycle{}
 
 // osErrNotExist is aliased so loadAllFromStore can call errors.Is
 // without an additional public dependency on the `os` package being
@@ -387,30 +379,42 @@ var _ LifecycleMemory = coreManagerLifecycle{}
 var osErrNotExist = os.ErrNotExist
 
 // ExportAll exports each active tier whose Exporter is wired (or whose
-// Memory satisfies coremem.Exporter via type assertion). Parity with
+// Memory satisfies Exporter/coremem.Exporter via type assertion). Parity with
 // coremem.Manager.ExportAll: when persistKey != "", every snapshot is
 // also persisted via Options.SnapshotStore — returning
 // coremem.ErrSnapshotStoreNotConfigured if the store is nil.
-func (m *Manager) ExportAll(ctx context.Context, persistKey string) (map[coremem.Kind]coremem.Snapshot, error) {
-	if m.coreManagerOnly() {
-		return m.opts.CoreManager.ExportAll(ctx, persistKey)
-	}
-	out := make(map[coremem.Kind]coremem.Snapshot, 3)
+func (m *Manager) ExportAll(ctx context.Context, persistKey string) (map[Kind]Snapshot, error) {
+	out := make(map[Kind]Snapshot, 3)
 	for _, kind := range []coremem.Kind{coremem.KindWorking, coremem.KindEpisodic, coremem.KindSemantic} {
 		t, _ := m.tierFor(kind)
-		if t.Memory == nil {
+		mem := asLocalMemory(t.Memory)
+		if mem == nil {
 			continue
 		}
 		exp := t.Exporter
 		if exp == nil {
-			if e, ok := t.Memory.(coremem.Exporter); ok {
+			if e, ok := t.Memory.(Exporter); ok {
 				exp = e
 			}
 		}
-		if exp == nil {
+		var (
+			snap Snapshot
+			err  error
+		)
+		switch {
+		case exp != nil:
+			snap, err = exp.Export(ctx)
+		case mem != nil:
+			if e, ok := t.Memory.(coremem.Exporter); ok {
+				var coreSnap coremem.Snapshot
+				coreSnap, err = e.Export(ctx)
+				snap = snapshotFromCore(coreSnap)
+			} else {
+				continue
+			}
+		default:
 			continue
 		}
-		snap, err := exp.Export(ctx)
 		if err != nil {
 			return out, fmt.Errorf("memory: manager export %s: %w", kind, err)
 		}
@@ -431,15 +435,12 @@ func (m *Manager) ExportAll(ctx context.Context, persistKey string) (map[coremem
 }
 
 // ImportAll fans the import out to each tier whose Importer is wired
-// (or whose Memory satisfies coremem.Importer via type assertion). Two
+// (or whose Memory satisfies Importer/coremem.Importer via type assertion). Two
 // modes: when snaps != nil, the inline map wins; otherwise the
 // configured SnapshotStore is consulted (preferring LoadKind when
 // available). Disabled tiers / missing keys / missing importers are
 // silently skipped. Parity with coremem.Manager.ImportAll.
-func (m *Manager) ImportAll(ctx context.Context, snaps map[coremem.Kind]coremem.Snapshot, persistKey string, mode coremem.ImportMode) (map[coremem.Kind]coremem.ImportReport, error) {
-	if m.coreManagerOnly() {
-		return m.opts.CoreManager.ImportAll(ctx, snaps, persistKey, mode)
-	}
+func (m *Manager) ImportAll(ctx context.Context, snaps map[Kind]Snapshot, persistKey string, mode ImportMode) (map[Kind]ImportReport, error) {
 	if snaps == nil && persistKey != "" {
 		if m.opts.SnapshotStore == nil {
 			return nil, coremem.ErrSnapshotStoreNotConfigured
@@ -450,22 +451,37 @@ func (m *Manager) ImportAll(ctx context.Context, snaps map[coremem.Kind]coremem.
 		}
 		snaps = loaded
 	}
-	out := make(map[coremem.Kind]coremem.ImportReport, len(snaps))
+	out := make(map[Kind]ImportReport, len(snaps))
 	for kind, snap := range snaps {
 		t, _ := m.tierFor(kind)
-		if t.Memory == nil {
+		mem := asLocalMemory(t.Memory)
+		if mem == nil {
 			continue
 		}
 		imp := t.Importer
 		if imp == nil {
-			if i, ok := t.Memory.(coremem.Importer); ok {
+			if i, ok := t.Memory.(Importer); ok {
 				imp = i
 			}
 		}
-		if imp == nil {
+		var (
+			rpt ImportReport
+			err error
+		)
+		switch {
+		case imp != nil:
+			rpt, err = imp.Import(ctx, snap, mode)
+		case mem != nil:
+			if i, ok := t.Memory.(coremem.Importer); ok {
+				var coreRpt coremem.ImportReport
+				coreRpt, err = i.Import(ctx, snapshotToCore(snap), coremem.ImportMode(mode))
+				rpt = importReportFromCore(coreRpt)
+			} else {
+				continue
+			}
+		default:
 			continue
 		}
-		rpt, err := imp.Import(ctx, snap, mode)
 		if err != nil {
 			return out, fmt.Errorf("memory: manager import %s: %w", kind, err)
 		}
@@ -474,69 +490,18 @@ func (m *Manager) ImportAll(ctx context.Context, snaps map[coremem.Kind]coremem.
 	return out, nil
 }
 
-// coreManagerOnly reports whether no per-tier Memory is wired but a
-// CoreManager is present. In that mode every fan-out method delegates
-// wholesale to the wrapped *coremem.Manager. Hot path for the compat
-// shim's NewManagerFromCore.
-func (m *Manager) coreManagerOnly() bool {
-	return m.opts.Working.Memory == nil &&
-		m.opts.Episodic.Memory == nil &&
-		m.opts.Semantic.Memory == nil &&
-		m.opts.CoreManager != nil
-}
-
-// coreManagerMemoryAdapter satisfies coremem.Memory by routing every
-// call through (*coremem.Manager) for the given Kind. Used internally
-// by the compat shim path so that per-kind methods (Add / Get / Search
-// / Update / Remove / Stats) work when only Options.CoreManager is
-// wired.
-type coreManagerMemoryAdapter struct {
-	mgr  *coremem.Manager
-	kind coremem.Kind
-}
-
-func (a coreManagerMemoryAdapter) Type() coremem.Kind { return a.kind }
-
-func (a coreManagerMemoryAdapter) Add(ctx context.Context, item coremem.MemoryItem) (string, error) {
-	return a.mgr.Add(ctx, a.kind, item)
-}
-
-func (a coreManagerMemoryAdapter) Search(ctx context.Context, query string, topK int) ([]coremem.SearchResult, error) {
-	return a.mgr.Search(ctx, a.kind, query, topK)
-}
-
-func (a coreManagerMemoryAdapter) Get(ctx context.Context, id string) (coremem.MemoryItem, error) {
-	return a.mgr.Get(ctx, a.kind, id)
-}
-
-func (a coreManagerMemoryAdapter) Update(ctx context.Context, id string, fn func(*coremem.MemoryItem)) error {
-	return a.mgr.Update(ctx, a.kind, id, fn)
-}
-
-func (a coreManagerMemoryAdapter) Remove(ctx context.Context, id string) error {
-	return a.mgr.Remove(ctx, a.kind, id)
-}
-
-func (a coreManagerMemoryAdapter) Stats() coremem.Stats {
-	return a.mgr.StatsAll()[a.kind]
-}
-
-// Compile-time check that coreManagerMemoryAdapter satisfies
-// coremem.Memory. Catches drift if either signature changes.
-var _ coremem.Memory = coreManagerMemoryAdapter{}
-
 // loadAllFromStore mirrors the per-kind loop in coremem.Manager.ImportAll
 // (manager.go:368-391) — prefer LoadKind when the store implements it,
 // otherwise fall back to Load and filter by Kind. Missing keys (those
 // wrapping os.ErrNotExist) are silently skipped.
-func loadAllFromStore(ctx context.Context, store coremem.SnapshotStore, persistKey string) (map[coremem.Kind]coremem.Snapshot, error) {
+func loadAllFromStore(ctx context.Context, store SnapshotStore, persistKey string) (map[Kind]Snapshot, error) {
 	type kindLoader interface {
-		LoadKind(ctx context.Context, key string, kind coremem.Kind) (coremem.Snapshot, error)
+		LoadKind(ctx context.Context, key string, kind Kind) (Snapshot, error)
 	}
-	out := make(map[coremem.Kind]coremem.Snapshot, 3)
+	out := make(map[Kind]Snapshot, 3)
 	for _, kind := range []coremem.Kind{coremem.KindWorking, coremem.KindEpisodic, coremem.KindSemantic} {
 		var (
-			snap coremem.Snapshot
+			snap Snapshot
 			err  error
 		)
 		if lk, ok := store.(kindLoader); ok {

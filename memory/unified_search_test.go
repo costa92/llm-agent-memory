@@ -8,20 +8,27 @@ import (
 )
 
 func TestUnifiedSearcher_FansOutToAllTiers(t *testing.T) {
-	mgr := newCoreManager(t)
+	mgr, err := NewManager(Options{
+		Working:  TierOptions{Memory: newWorking(t)},
+		Episodic: TierOptions{Memory: newEpisodic(t)},
+		Semantic: TierOptions{Memory: newSemantic(t)},
+	})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
 	u, err := NewUnifiedSearcher(mgr)
 	if err != nil {
 		t.Fatalf("NewUnifiedSearcher: %v", err)
 	}
 
 	ctx := context.Background()
-	if _, err := mgr.Add(ctx, coremem.KindWorking, coremem.MemoryItem{Content: "go modules", Importance: 0.5}); err != nil {
+	if _, err := mgr.Add(ctx, coremem.KindWorking, MemoryItem{Content: "go modules", Importance: 0.5}); err != nil {
 		t.Fatalf("working Add: %v", err)
 	}
-	if _, err := mgr.Add(ctx, coremem.KindEpisodic, coremem.MemoryItem{Content: "go modules history", Importance: 0.5}); err != nil {
+	if _, err := mgr.Add(ctx, coremem.KindEpisodic, MemoryItem{Content: "go modules history", Importance: 0.5}); err != nil {
 		t.Fatalf("episodic Add: %v", err)
 	}
-	if _, err := mgr.Add(ctx, coremem.KindSemantic, coremem.MemoryItem{Content: "go modules guide", Tags: []string{"go"}, Importance: 0.5}); err != nil {
+	if _, err := mgr.Add(ctx, coremem.KindSemantic, MemoryItem{Content: "go modules guide", Tags: []string{"go"}, Importance: 0.5}); err != nil {
 		t.Fatalf("semantic Add: %v", err)
 	}
 
@@ -48,7 +55,7 @@ func TestUnifiedSearcher_FansOutToAllTiers(t *testing.T) {
 
 // contentsOf is a small test helper to print the content slice on
 // failure. Kept inside _test.go so it doesn't leak into the public API.
-func contentsOf(rs []coremem.SearchResult) []string {
+func contentsOf(rs []SearchResult) []string {
 	out := make([]string, len(rs))
 	for i, r := range rs {
 		out[i] = r.Item.Content
@@ -57,7 +64,14 @@ func contentsOf(rs []coremem.SearchResult) []string {
 }
 
 func TestUnifiedSearcher_DedupesByIDAndContent(t *testing.T) {
-	mgr := newCoreManager(t)
+	mgr, err := NewManager(Options{
+		Working:  TierOptions{Memory: newWorking(t)},
+		Episodic: TierOptions{Memory: newEpisodic(t)},
+		Semantic: TierOptions{Memory: newSemantic(t)},
+	})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
 	u, err := NewUnifiedSearcher(mgr)
 	if err != nil {
 		t.Fatalf("NewUnifiedSearcher: %v", err)
@@ -68,10 +82,10 @@ func TestUnifiedSearcher_DedupesByIDAndContent(t *testing.T) {
 	// collapse to a single result.
 	const sharedID = "fixed-id-001"
 	const sharedContent = "duplicated note"
-	if _, err := mgr.Add(ctx, coremem.KindWorking, coremem.MemoryItem{ID: sharedID, Content: sharedContent, Importance: 0.5}); err != nil {
+	if _, err := mgr.Add(ctx, coremem.KindWorking, MemoryItem{ID: sharedID, Content: sharedContent, Importance: 0.5}); err != nil {
 		t.Fatalf("working Add: %v", err)
 	}
-	if _, err := mgr.Add(ctx, coremem.KindEpisodic, coremem.MemoryItem{ID: sharedID, Content: sharedContent, Importance: 0.5}); err != nil {
+	if _, err := mgr.Add(ctx, coremem.KindEpisodic, MemoryItem{ID: sharedID, Content: sharedContent, Importance: 0.5}); err != nil {
 		t.Fatalf("episodic Add: %v", err)
 	}
 
@@ -92,7 +106,14 @@ func TestUnifiedSearcher_DedupesByIDAndContent(t *testing.T) {
 }
 
 func TestUnifiedSearcher_SortsByScoreDescending(t *testing.T) {
-	mgr := newCoreManager(t)
+	mgr, err := NewManager(Options{
+		Working:  TierOptions{Memory: newWorking(t)},
+		Episodic: TierOptions{Memory: newEpisodic(t)},
+		Semantic: TierOptions{Memory: newSemantic(t)},
+	})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
 	u, err := NewUnifiedSearcher(mgr)
 	if err != nil {
 		t.Fatalf("NewUnifiedSearcher: %v", err)
@@ -102,13 +123,13 @@ func TestUnifiedSearcher_SortsByScoreDescending(t *testing.T) {
 	// Two clearly-distinguishable contents so any tier produces a
 	// score difference. We don't assert exact scores — just that the
 	// returned slice is monotonically non-increasing in Score.
-	if _, err := mgr.Add(ctx, coremem.KindWorking, coremem.MemoryItem{Content: "go modules", Importance: 0.5}); err != nil {
+	if _, err := mgr.Add(ctx, coremem.KindWorking, MemoryItem{Content: "go modules", Importance: 0.5}); err != nil {
 		t.Fatalf("Add 1: %v", err)
 	}
-	if _, err := mgr.Add(ctx, coremem.KindEpisodic, coremem.MemoryItem{Content: "unrelated cooking recipe", Importance: 0.5}); err != nil {
+	if _, err := mgr.Add(ctx, coremem.KindEpisodic, MemoryItem{Content: "unrelated cooking recipe", Importance: 0.5}); err != nil {
 		t.Fatalf("Add 2: %v", err)
 	}
-	if _, err := mgr.Add(ctx, coremem.KindSemantic, coremem.MemoryItem{Content: "go modules guide", Tags: []string{"go"}, Importance: 0.5}); err != nil {
+	if _, err := mgr.Add(ctx, coremem.KindSemantic, MemoryItem{Content: "go modules guide", Tags: []string{"go"}, Importance: 0.5}); err != nil {
 		t.Fatalf("Add 3: %v", err)
 	}
 
@@ -124,7 +145,14 @@ func TestUnifiedSearcher_SortsByScoreDescending(t *testing.T) {
 }
 
 func TestUnifiedSearcher_HonorsTopK(t *testing.T) {
-	mgr := newCoreManager(t)
+	mgr, err := NewManager(Options{
+		Working:  TierOptions{Memory: newWorking(t)},
+		Episodic: TierOptions{Memory: newEpisodic(t)},
+		Semantic: TierOptions{Memory: newSemantic(t)},
+	})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
 	u, err := NewUnifiedSearcher(mgr)
 	if err != nil {
 		t.Fatalf("NewUnifiedSearcher: %v", err)
@@ -143,7 +171,7 @@ func TestUnifiedSearcher_HonorsTopK(t *testing.T) {
 		{coremem.KindSemantic, "go echo"},
 	}
 	for _, c := range contents {
-		if _, err := mgr.Add(ctx, c.kind, coremem.MemoryItem{Content: c.content, Importance: 0.5}); err != nil {
+		if _, err := mgr.Add(ctx, c.kind, MemoryItem{Content: c.content, Importance: 0.5}); err != nil {
 			t.Fatalf("Add %s/%s: %v", c.kind, c.content, err)
 		}
 	}
@@ -158,14 +186,21 @@ func TestUnifiedSearcher_HonorsTopK(t *testing.T) {
 }
 
 func TestUnifiedSearcher_DoesNotAlterCoreSearchAll(t *testing.T) {
-	mgr := newCoreManager(t)
+	mgr, err := NewManager(Options{
+		Working:  TierOptions{Memory: newWorking(t)},
+		Episodic: TierOptions{Memory: newEpisodic(t)},
+		Semantic: TierOptions{Memory: newSemantic(t)},
+	})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
 	u, err := NewUnifiedSearcher(mgr)
 	if err != nil {
 		t.Fatalf("NewUnifiedSearcher: %v", err)
 	}
 
 	ctx := context.Background()
-	if _, err := mgr.Add(ctx, coremem.KindEpisodic, coremem.MemoryItem{Content: "alpha", Importance: 0.5}); err != nil {
+	if _, err := mgr.Add(ctx, coremem.KindEpisodic, MemoryItem{Content: "alpha", Importance: 0.5}); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
 
@@ -185,13 +220,20 @@ func TestUnifiedSearcher_DoesNotAlterCoreSearchAll(t *testing.T) {
 
 func TestUnifiedSearcher_SearchUnified_EmitsSearchTotalAndHits(t *testing.T) {
 	rec := &recordingObserver{}
-	mgr := newCoreManager(t)
+	mgr, err := NewManager(Options{
+		Working:  TierOptions{Memory: newWorking(t)},
+		Episodic: TierOptions{Memory: newEpisodic(t)},
+		Semantic: TierOptions{Memory: newSemantic(t)},
+	})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
 	u, err := NewUnifiedSearcher(mgr, WithObserver(rec))
 	if err != nil {
 		t.Fatalf("NewUnifiedSearcher: %v", err)
 	}
 	ctx := context.Background()
-	if _, err := mgr.Add(ctx, coremem.KindEpisodic, coremem.MemoryItem{Content: "go modules guide", Importance: 0.5}); err != nil {
+	if _, err := mgr.Add(ctx, coremem.KindEpisodic, MemoryItem{Content: "go modules guide", Importance: 0.5}); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
 

@@ -8,6 +8,20 @@ import (
 	coremem "github.com/costa92/llm-agent/memory"
 )
 
+func newPolicyTestManager(t *testing.T) *Manager {
+	t.Helper()
+	w, e, s := newWorking(t), newEpisodic(t), newSemantic(t)
+	mgr, err := NewManager(Options{
+		Working:  TierOptions{Memory: w, Lister: w, Exporter: w, Importer: w},
+		Episodic: TierOptions{Memory: e, Lister: e, Exporter: e, Importer: e},
+		Semantic: TierOptions{Memory: s, Lister: s, Exporter: s, Importer: s},
+	})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	return mgr
+}
+
 // TestWritePolicy_InterfaceSurface_Compiles is a compile-time
 // assertion. If the types in this file go missing or change shape,
 // this test will fail to compile, which is the exact signal we want.
@@ -27,16 +41,16 @@ func TestWritePolicy_InterfaceSurface_Compiles(t *testing.T) {
 	}
 
 	// All three sources must be distinct.
-	if SourceUserSaved == SourceAgentInferred || SourceUserSaved == SourceSystem || SourceAgentInferred == SourceSystem {
+	if WriteSourceUserSaved == WriteSourceAgentInferred || WriteSourceUserSaved == WriteSourceSystem || WriteSourceAgentInferred == WriteSourceSystem {
 		t.Errorf("sources must be distinct: user=%v agent=%v system=%v",
-			SourceUserSaved, SourceAgentInferred, SourceSystem)
+			WriteSourceUserSaved, WriteSourceAgentInferred, WriteSourceSystem)
 	}
 
 	// ProposedWrite and WritePolicyDecision must accept the documented field set.
 	in := ProposedWrite{
 		Kind:   coremem.KindWorking,
-		Item:   coremem.MemoryItem{Content: "x"},
-		Source: SourceUserSaved,
+		Item:   MemoryItem{Content: "x"},
+		Source: WriteSourceUserSaved,
 		Hint:   map[string]any{"channel": "chat"},
 	}
 	out := WritePolicyDecision{
@@ -51,7 +65,7 @@ func TestWritePolicy_InterfaceSurface_Compiles(t *testing.T) {
 }
 
 func TestPolicyEnforcingMemory_Add_VerdictAccept_WritesToDecidedKind(t *testing.T) {
-	mgr := newCoreManager(t)
+	mgr := newPolicyTestManager(t)
 	policy := PolicyFunc(func(_ context.Context, in ProposedWrite) WritePolicyDecision {
 		// Reroute: user-saved memories go to Episodic regardless of input kind.
 		return WritePolicyDecision{
@@ -69,8 +83,8 @@ func TestPolicyEnforcingMemory_Add_VerdictAccept_WritesToDecidedKind(t *testing.
 	ctx := context.Background()
 	id, err := pem.Add(ctx, ProposedWrite{
 		Kind:   coremem.KindWorking, // caller asked for Working...
-		Item:   coremem.MemoryItem{Content: "remember me"},
-		Source: SourceUserSaved,
+		Item:   MemoryItem{Content: "remember me"},
+		Source: WriteSourceUserSaved,
 	})
 	if err != nil {
 		t.Fatalf("Add: %v", err)
@@ -90,7 +104,7 @@ func TestPolicyEnforcingMemory_Add_VerdictAccept_WritesToDecidedKind(t *testing.
 }
 
 func TestPolicyEnforcingMemory_Add_VerdictReject_ReturnsErrRejectedByPolicy(t *testing.T) {
-	mgr := newCoreManager(t)
+	mgr := newPolicyTestManager(t)
 	policy := PolicyFunc(func(_ context.Context, _ ProposedWrite) WritePolicyDecision {
 		return WritePolicyDecision{Verdict: VerdictReject, Reason: "test-reject"}
 	})
@@ -101,7 +115,7 @@ func TestPolicyEnforcingMemory_Add_VerdictReject_ReturnsErrRejectedByPolicy(t *t
 
 	_, err = pem.Add(context.Background(), ProposedWrite{
 		Kind: coremem.KindWorking,
-		Item: coremem.MemoryItem{Content: "blocked"},
+		Item: MemoryItem{Content: "blocked"},
 	})
 	if err == nil {
 		t.Fatal("Add returned nil error on VerdictReject")
@@ -113,7 +127,7 @@ func TestPolicyEnforcingMemory_Add_VerdictReject_ReturnsErrRejectedByPolicy(t *t
 
 func TestPolicyEnforcingMemory_Add_EmitsEventWritePolicyDecidedOnAccept(t *testing.T) {
 	rec := &recordingObserver{}
-	mgr := newCoreManager(t)
+	mgr := newPolicyTestManager(t)
 	policy := PolicyFunc(func(_ context.Context, in ProposedWrite) WritePolicyDecision {
 		return WritePolicyDecision{Verdict: VerdictAccept, Kind: in.Kind, Item: in.Item, Reason: "ok"}
 	})
@@ -122,7 +136,7 @@ func TestPolicyEnforcingMemory_Add_EmitsEventWritePolicyDecidedOnAccept(t *testi
 		t.Fatalf("NewPolicyEnforcingMemory: %v", err)
 	}
 	if _, err := pem.Add(context.Background(), ProposedWrite{
-		Kind: coremem.KindWorking, Item: coremem.MemoryItem{Content: "x"}, Source: SourceUserSaved,
+		Kind: coremem.KindWorking, Item: MemoryItem{Content: "x"}, Source: WriteSourceUserSaved,
 	}); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
@@ -136,8 +150,8 @@ func TestPolicyEnforcingMemory_Add_EmitsEventWritePolicyDecidedOnAccept(t *testi
 	if v, _ := got[0].Attrs["verdict"].(string); v != string(VerdictAccept) {
 		t.Errorf("verdict = %v, want %q", got[0].Attrs["verdict"], VerdictAccept)
 	}
-	if s, _ := got[0].Attrs["source"].(string); s != string(SourceUserSaved) {
-		t.Errorf("source = %v, want %q", got[0].Attrs["source"], SourceUserSaved)
+	if s, _ := got[0].Attrs["source"].(string); s != string(WriteSourceUserSaved) {
+		t.Errorf("source = %v, want %q", got[0].Attrs["source"], WriteSourceUserSaved)
 	}
 	if r, _ := got[0].Attrs["reason"].(string); r != "ok" {
 		t.Errorf("reason = %v, want %q", got[0].Attrs["reason"], "ok")
@@ -146,7 +160,7 @@ func TestPolicyEnforcingMemory_Add_EmitsEventWritePolicyDecidedOnAccept(t *testi
 
 func TestPolicyEnforcingMemory_Add_EmitsEventWritePolicyDecidedOnRedact(t *testing.T) {
 	rec := &recordingObserver{}
-	mgr := newCoreManager(t)
+	mgr := newPolicyTestManager(t)
 	policy := PolicyFunc(func(_ context.Context, in ProposedWrite) WritePolicyDecision {
 		redacted := in.Item
 		redacted.Content = "[REDACTED]"
@@ -157,7 +171,7 @@ func TestPolicyEnforcingMemory_Add_EmitsEventWritePolicyDecidedOnRedact(t *testi
 		t.Fatalf("NewPolicyEnforcingMemory: %v", err)
 	}
 	if _, err := pem.Add(context.Background(), ProposedWrite{
-		Kind: coremem.KindWorking, Item: coremem.MemoryItem{Content: "ssn 123-45-6789"},
+		Kind: coremem.KindWorking, Item: MemoryItem{Content: "ssn 123-45-6789"},
 	}); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
@@ -172,7 +186,7 @@ func TestPolicyEnforcingMemory_Add_EmitsEventWritePolicyDecidedOnRedact(t *testi
 
 func TestPolicyEnforcingMemory_Add_EmitsEventWritePolicyDecidedOnReject(t *testing.T) {
 	rec := &recordingObserver{}
-	mgr := newCoreManager(t)
+	mgr := newPolicyTestManager(t)
 	policy := PolicyFunc(func(_ context.Context, _ ProposedWrite) WritePolicyDecision {
 		return WritePolicyDecision{Verdict: VerdictReject, Reason: "policy:no-pii"}
 	})
@@ -181,7 +195,7 @@ func TestPolicyEnforcingMemory_Add_EmitsEventWritePolicyDecidedOnReject(t *testi
 		t.Fatalf("NewPolicyEnforcingMemory: %v", err)
 	}
 	_, _ = pem.Add(context.Background(), ProposedWrite{
-		Kind: coremem.KindWorking, Item: coremem.MemoryItem{Content: "x"}, Source: SourceAgentInferred,
+		Kind: coremem.KindWorking, Item: MemoryItem{Content: "x"}, Source: WriteSourceAgentInferred,
 	})
 	got := rec.snapshot()
 	if len(got) != 1 || got[0].Name != EventWritePolicyDecided {
@@ -253,7 +267,7 @@ func TestPolicyEnforcingMemory_CoversAllFourDocumentedDecisions(t *testing.T) {
 	}{
 		{
 			name:        "user-saved direct to episodic",
-			source:      SourceUserSaved,
+			source:      WriteSourceUserSaved,
 			decide:      func(in ProposedWrite) WritePolicyDecision { return WritePolicyDecision{Verdict: VerdictAccept, Kind: coremem.KindEpisodic, Item: in.Item, Reason: "user-saved-promote"} },
 			wantLanded:  true,
 			wantInKind:  coremem.KindEpisodic,
@@ -261,7 +275,7 @@ func TestPolicyEnforcingMemory_CoversAllFourDocumentedDecisions(t *testing.T) {
 		},
 		{
 			name:        "agent-inferred routes to working",
-			source:      SourceAgentInferred,
+			source:      WriteSourceAgentInferred,
 			decide:      func(in ProposedWrite) WritePolicyDecision { return WritePolicyDecision{Verdict: VerdictAccept, Kind: coremem.KindWorking, Item: in.Item, Reason: "agent-inferred-defer"} },
 			wantLanded:  true,
 			wantInKind:  coremem.KindWorking,
@@ -269,13 +283,13 @@ func TestPolicyEnforcingMemory_CoversAllFourDocumentedDecisions(t *testing.T) {
 		},
 		{
 			name:    "reject pii",
-			source:  SourceAgentInferred,
+			source:  WriteSourceAgentInferred,
 			decide:  func(_ ProposedWrite) WritePolicyDecision { return WritePolicyDecision{Verdict: VerdictReject, Reason: "policy:pii"} },
 			wantErr: ErrRejectedByPolicy,
 		},
 		{
 			name:   "redact secret",
-			source: SourceUserSaved,
+			source: WriteSourceUserSaved,
 			decide: func(in ProposedWrite) WritePolicyDecision {
 				it := in.Item
 				it.Content = "[REDACTED]"
@@ -289,7 +303,7 @@ func TestPolicyEnforcingMemory_CoversAllFourDocumentedDecisions(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			mgr := newCoreManager(t)
+			mgr := newPolicyTestManager(t)
 			pem, err := NewPolicyEnforcingMemory(mgr, PolicyFunc(func(_ context.Context, in ProposedWrite) WritePolicyDecision {
 				return tc.decide(in)
 			}))
@@ -303,7 +317,7 @@ func TestPolicyEnforcingMemory_CoversAllFourDocumentedDecisions(t *testing.T) {
 			}
 			id, err := pem.Add(context.Background(), ProposedWrite{
 				Kind:   coremem.KindWorking,
-				Item:   coremem.MemoryItem{Content: content},
+				Item:   MemoryItem{Content: content},
 				Source: tc.source,
 			})
 			if tc.wantErr != nil {

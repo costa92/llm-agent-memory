@@ -22,7 +22,6 @@ import "github.com/costa92/llm-agent-memory/memory"
 - `Consolidator.ExportAll(ctx, dir)` thin wrap emitting per-kind snapshot events.
 - `memory.Manager` — capability-interface-typed coordinator (D-1). Accepts decorator-wrapped `coremem.Memory` interface values without a cast.
 - `memory.RecallEngine.Recall(ctx, query, opts)` — unified recall facade (D-2). The v1 public recall surface.
-- `memory/compat` sub-package — `NewManagerFromCore` / `NewManagerFromLegacyOptions` for one-release-window backwards compatibility.
 
 ## Boundary
 
@@ -36,7 +35,8 @@ in the umbrella for the full subproject roadmap.
 ## Migration from v0.x
 
 See `docs/memory-v1-migration.zh-CN.md` in the umbrella repo for
-the full migration recipe. TL;DR — new code should construct
-`*memory.Manager` directly; existing `*coremem.Manager` callers
-can wrap via `compat.NewManagerFromCore` to opt into the v1
-surface without rewriting their wiring.
+the full migration recipe. New code should construct
+`*memory.Manager` directly and wire capabilities explicitly.
+
+Durable backend implementations and gateway/service composition are provided by
+separate modules, not by this SDK package.

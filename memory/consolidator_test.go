@@ -9,14 +9,22 @@ import (
 )
 
 func TestConsolidator_FirstPromote_WritesDedupeMetadata(t *testing.T) {
-	mgr := newCoreManager(t)
+	w, e, s := newWorking(t), newEpisodic(t), newSemantic(t)
+	mgr, err := NewManager(Options{
+		Working:  TierOptions{Memory: w, Lister: w, Exporter: w, Importer: w},
+		Episodic: TierOptions{Memory: e, Lister: e, Exporter: e, Importer: e},
+		Semantic: TierOptions{Memory: s, Lister: s, Exporter: s, Importer: s},
+	})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
 	c, err := NewConsolidator(mgr)
 	if err != nil {
 		t.Fatalf("NewConsolidator: %v", err)
 	}
 
 	ctx := context.Background()
-	id, err := mgr.Add(ctx, coremem.KindWorking, coremem.MemoryItem{
+	id, err := mgr.Add(ctx, coremem.KindWorking, MemoryItem{
 		Content: "important note", Importance: 0.9,
 	})
 	if err != nil {
@@ -55,14 +63,22 @@ func TestConsolidator_FirstPromote_WritesDedupeMetadata(t *testing.T) {
 }
 
 func TestConsolidator_SecondCall_DoesNotRePromote(t *testing.T) {
-	mgr := newCoreManager(t)
+	w, e, s := newWorking(t), newEpisodic(t), newSemantic(t)
+	mgr, err := NewManager(Options{
+		Working:  TierOptions{Memory: w, Lister: w, Exporter: w, Importer: w},
+		Episodic: TierOptions{Memory: e, Lister: e, Exporter: e, Importer: e},
+		Semantic: TierOptions{Memory: s, Lister: s, Exporter: s, Importer: s},
+	})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
 	c, err := NewConsolidator(mgr)
 	if err != nil {
 		t.Fatalf("NewConsolidator: %v", err)
 	}
 
 	ctx := context.Background()
-	if _, err := mgr.Add(ctx, coremem.KindWorking, coremem.MemoryItem{
+	if _, err := mgr.Add(ctx, coremem.KindWorking, MemoryItem{
 		Content: "promote me once", Importance: 0.9,
 	}); err != nil {
 		t.Fatalf("Add: %v", err)
@@ -95,14 +111,22 @@ func TestConsolidator_DedupeMetadata_RoundTripsThroughExportImport(t *testing.T)
 	// Build mgr A, promote once, export Working snapshot, import into a
 	// fresh mgr B, then assert: (a) the source still carries the dedupe
 	// metadata, and (b) re-running Consolidate on mgr B is a no-op.
-	mgrA := newCoreManager(t)
+	wA, eA, sA := newWorking(t), newEpisodic(t), newSemantic(t)
+	mgrA, err := NewManager(Options{
+		Working:  TierOptions{Memory: wA, Lister: wA, Exporter: wA, Importer: wA},
+		Episodic: TierOptions{Memory: eA, Lister: eA, Exporter: eA, Importer: eA},
+		Semantic: TierOptions{Memory: sA, Lister: sA, Exporter: sA, Importer: sA},
+	})
+	if err != nil {
+		t.Fatalf("NewManager A: %v", err)
+	}
 	c, err := NewConsolidator(mgrA)
 	if err != nil {
 		t.Fatalf("NewConsolidator: %v", err)
 	}
 
 	ctx := context.Background()
-	if _, err := mgrA.Add(ctx, coremem.KindWorking, coremem.MemoryItem{
+	if _, err := mgrA.Add(ctx, coremem.KindWorking, MemoryItem{
 		Content: "ride-along", Importance: 0.9,
 	}); err != nil {
 		t.Fatalf("Add: %v", err)
@@ -124,10 +148,18 @@ func TestConsolidator_DedupeMetadata_RoundTripsThroughExportImport(t *testing.T)
 	// over-the-wire reload would produce.
 	roundTripped := jsonRoundTripSnap(t, workingSnap)
 
-	mgrB := newCoreManager(t)
-	rpt, err := mgrB.ImportAll(ctx, map[coremem.Kind]coremem.Snapshot{
-		coremem.KindWorking: roundTripped,
-	}, "", coremem.ImportReplace)
+	wB, eB, sB := newWorking(t), newEpisodic(t), newSemantic(t)
+	mgrB, err := NewManager(Options{
+		Working:  TierOptions{Memory: wB, Lister: wB, Exporter: wB, Importer: wB},
+		Episodic: TierOptions{Memory: eB, Lister: eB, Exporter: eB, Importer: eB},
+		Semantic: TierOptions{Memory: sB, Lister: sB, Exporter: sB, Importer: sB},
+	})
+	if err != nil {
+		t.Fatalf("NewManager B: %v", err)
+	}
+	rpt, err := mgrB.ImportAll(ctx, map[Kind]Snapshot{
+		KindWorking: roundTripped,
+	}, "", ImportReplace)
 	if err != nil {
 		t.Fatalf("ImportAll: %v", err)
 	}
@@ -151,10 +183,11 @@ func TestConsolidator_DedupeMetadata_RoundTripsThroughExportImport(t *testing.T)
 }
 
 func TestConsolidator_Consolidate_PagesThroughLargeWorkingSet(t *testing.T) {
-	mgr, err := coremem.NewManager(coremem.ManagerOptions{
-		Working:  newCoreWorkingWithCapacity(t, 256),
-		Episodic: newCoreEpisodic(t),
-		Semantic: newCoreSemantic(t),
+	w, e, s := newWorkingWithCapacity(t, 256), newEpisodic(t), newSemantic(t)
+	mgr, err := NewManager(Options{
+		Working:  TierOptions{Memory: w, Lister: w, Exporter: w, Importer: w},
+		Episodic: TierOptions{Memory: e, Lister: e, Exporter: e, Importer: e},
+		Semantic: TierOptions{Memory: s, Lister: s, Exporter: s, Importer: s},
 	})
 	if err != nil {
 		t.Fatalf("NewManager: %v", err)
@@ -167,7 +200,7 @@ func TestConsolidator_Consolidate_PagesThroughLargeWorkingSet(t *testing.T) {
 	ctx := context.Background()
 	const total = 175
 	for i := 0; i < total; i++ {
-		if _, err := mgr.Add(ctx, coremem.KindWorking, coremem.MemoryItem{
+		if _, err := mgr.Add(ctx, coremem.KindWorking, MemoryItem{
 			Content:    fmt.Sprintf("paged-%03d", i),
 			Importance: 0.9,
 		}); err != nil {
@@ -186,16 +219,25 @@ func TestConsolidator_Consolidate_PagesThroughLargeWorkingSet(t *testing.T) {
 
 func TestConsolidator_Consolidate_EmitsConsolidatedTotalEvent(t *testing.T) {
 	rec := &recordingObserver{}
-	c, err := NewConsolidator(newCoreManager(t), WithObserver(rec))
+	w, e, s := newWorking(t), newEpisodic(t), newSemantic(t)
+	mgr, err := NewManager(Options{
+		Working:  TierOptions{Memory: w, Lister: w, Exporter: w, Importer: w},
+		Episodic: TierOptions{Memory: e, Lister: e, Exporter: e, Importer: e},
+		Semantic: TierOptions{Memory: s, Lister: s, Exporter: s, Importer: s},
+	})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	c, err := NewConsolidator(mgr, WithObserver(rec))
 	if err != nil {
 		t.Fatalf("NewConsolidator: %v", err)
 	}
 	ctx := context.Background()
-	mgr := c.mgr
-	if _, err := mgr.Add(ctx, coremem.KindWorking, coremem.MemoryItem{Content: "x", Importance: 0.9}); err != nil {
+	inner := c.mgr
+	if _, err := inner.Add(ctx, coremem.KindWorking, MemoryItem{Content: "x", Importance: 0.9}); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
-	if _, err := mgr.Add(ctx, coremem.KindWorking, coremem.MemoryItem{Content: "y", Importance: 0.9}); err != nil {
+	if _, err := inner.Add(ctx, coremem.KindWorking, MemoryItem{Content: "y", Importance: 0.9}); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
 
@@ -221,16 +263,24 @@ func TestConsolidator_Consolidate_EmitsConsolidatedTotalEvent(t *testing.T) {
 
 func TestConsolidator_Consolidate_EmitsAddTotalPerPromotion(t *testing.T) {
 	rec := &recordingObserver{}
-	mgr := newCoreManager(t)
+	w, e, s := newWorking(t), newEpisodic(t), newSemantic(t)
+	mgr, err := NewManager(Options{
+		Working:  TierOptions{Memory: w, Lister: w, Exporter: w, Importer: w},
+		Episodic: TierOptions{Memory: e, Lister: e, Exporter: e, Importer: e},
+		Semantic: TierOptions{Memory: s, Lister: s, Exporter: s, Importer: s},
+	})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
 	c, err := NewConsolidator(mgr, WithObserver(rec))
 	if err != nil {
 		t.Fatalf("NewConsolidator: %v", err)
 	}
 	ctx := context.Background()
-	if _, err := mgr.Add(ctx, coremem.KindWorking, coremem.MemoryItem{Content: "p1", Importance: 0.9}); err != nil {
+	if _, err := mgr.Add(ctx, coremem.KindWorking, MemoryItem{Content: "p1", Importance: 0.9}); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
-	if _, err := mgr.Add(ctx, coremem.KindWorking, coremem.MemoryItem{Content: "p2", Importance: 0.9}); err != nil {
+	if _, err := mgr.Add(ctx, coremem.KindWorking, MemoryItem{Content: "p2", Importance: 0.9}); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
 	if _, err := c.Consolidate(ctx, coremem.ConsolidateOptions{Threshold: 0.7}); err != nil {
@@ -253,13 +303,21 @@ func TestConsolidator_Consolidate_EmitsAddTotalPerPromotion(t *testing.T) {
 
 func TestConsolidator_ExportAll_EmitsSnapshotItemsAndVectorBytes(t *testing.T) {
 	rec := &recordingObserver{}
-	mgr := newCoreManager(t)
+	w, e, s := newWorking(t), newEpisodic(t), newSemantic(t)
+	mgr, err := NewManager(Options{
+		Working:  TierOptions{Memory: w, Lister: w, Exporter: w, Importer: w},
+		Episodic: TierOptions{Memory: e, Lister: e, Exporter: e, Importer: e},
+		Semantic: TierOptions{Memory: s, Lister: s, Exporter: s, Importer: s},
+	})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
 	c, err := NewConsolidator(mgr, WithObserver(rec))
 	if err != nil {
 		t.Fatalf("NewConsolidator: %v", err)
 	}
 	ctx := context.Background()
-	if _, err := mgr.Add(ctx, coremem.KindEpisodic, coremem.MemoryItem{Content: "snap-me", Importance: 0.5}); err != nil {
+	if _, err := mgr.Add(ctx, coremem.KindEpisodic, MemoryItem{Content: "snap-me", Importance: 0.5}); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
 

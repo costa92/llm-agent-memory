@@ -1,5 +1,5 @@
 // Package memory — sqlite_store.go is the Phase C-2 implementation
-// of coremem.SnapshotStore backed by SQLite via the pure-Go
+// of SnapshotStore backed by SQLite via the pure-Go
 // modernc.org/sqlite driver. No CGO required.
 //
 // Schema: see SchemaVersion + the migrator below. Two tables:
@@ -41,7 +41,7 @@ var ErrSchemaVersionAhead = errors.New("memory: sqlite store schema ahead of cod
 // empty.
 var ErrSQLiteDSNRequired = errors.New("memory: sqlite store requires a non-empty DSN")
 
-// SQLiteStore implements coremem.SnapshotStore + the optional
+// SQLiteStore implements SnapshotStore + the optional
 // LoadKind(ctx, key, kind) method consumed by
 // coremem.Manager.ImportAll (manager.go:369-371). Goroutine-safe via
 // the underlying *sql.DB.
@@ -215,7 +215,7 @@ func sanitizeSQLiteKey(s string) string {
 }
 
 // Save UPSERTs (key, snap.Kind) → snap. snap.Kind must be non-empty.
-func (s *SQLiteStore) Save(ctx context.Context, key string, snap coremem.Snapshot) error {
+func (s *SQLiteStore) Save(ctx context.Context, key string, snap Snapshot) error {
 	if snap.Kind == "" {
 		return errors.New("memory: sqlite store save: snapshot kind is required")
 	}
@@ -239,17 +239,17 @@ func (s *SQLiteStore) Save(ctx context.Context, key string, snap coremem.Snapsho
 // kinds (working → episodic → semantic). Returns an error wrapping
 // os.ErrNotExist when no row exists for any kind. Mirrors
 // (*FilesystemStore).Load semantics from persistence.go:254-265.
-func (s *SQLiteStore) Load(ctx context.Context, key string) (coremem.Snapshot, error) {
+func (s *SQLiteStore) Load(ctx context.Context, key string) (Snapshot, error) {
 	for _, kind := range []coremem.Kind{coremem.KindWorking, coremem.KindEpisodic, coremem.KindSemantic} {
 		snap, err := s.LoadKind(ctx, key, kind)
 		if err == nil {
 			return snap, nil
 		}
 		if !errors.Is(err, os.ErrNotExist) {
-			return coremem.Snapshot{}, err
+			return Snapshot{}, err
 		}
 	}
-	return coremem.Snapshot{}, fmt.Errorf("memory: sqlite store: no snapshot for key %q: %w", key, os.ErrNotExist)
+	return Snapshot{}, fmt.Errorf("memory: sqlite store: no snapshot for key %q: %w", key, os.ErrNotExist)
 }
 
 // LoadKind returns the snapshot for the exact (key, kind) tuple.
@@ -257,7 +257,7 @@ func (s *SQLiteStore) Load(ctx context.Context, key string) (coremem.Snapshot, e
 // method exists explicitly so coremem.Manager.ImportAll's optional
 // kindLoader type-assertion (manager.go:369-371) finds it and uses
 // the per-kind path instead of falling back to Load.
-func (s *SQLiteStore) LoadKind(ctx context.Context, key string, kind coremem.Kind) (coremem.Snapshot, error) {
+func (s *SQLiteStore) LoadKind(ctx context.Context, key string, kind Kind) (Snapshot, error) {
 	sk := sanitizeSQLiteKey(key)
 	var payload []byte
 	err := s.db.QueryRowContext(ctx,
@@ -265,14 +265,14 @@ func (s *SQLiteStore) LoadKind(ctx context.Context, key string, kind coremem.Kin
 		sk, string(kind),
 	).Scan(&payload)
 	if errors.Is(err, sql.ErrNoRows) {
-		return coremem.Snapshot{}, fmt.Errorf("memory: sqlite store: no snapshot for key %q kind %q: %w", key, kind, os.ErrNotExist)
+		return Snapshot{}, fmt.Errorf("memory: sqlite store: no snapshot for key %q kind %q: %w", key, kind, os.ErrNotExist)
 	}
 	if err != nil {
-		return coremem.Snapshot{}, fmt.Errorf("memory: sqlite store load: %w", err)
+		return Snapshot{}, fmt.Errorf("memory: sqlite store load: %w", err)
 	}
-	var snap coremem.Snapshot
+	var snap Snapshot
 	if err := json.Unmarshal(payload, &snap); err != nil {
-		return coremem.Snapshot{}, fmt.Errorf("memory: sqlite store load: decode: %w", err)
+		return Snapshot{}, fmt.Errorf("memory: sqlite store load: decode: %w", err)
 	}
 	return snap, nil
 }
@@ -310,8 +310,5 @@ func (s *SQLiteStore) List(ctx context.Context) ([]string, error) {
 	return out, nil
 }
 
-// Compile-time check: SQLiteStore satisfies coremem.SnapshotStore. If
-// upstream renames or restructures SnapshotStore, this line will fail
-// to compile — a deliberate early-warning signal that complements the
-// runtime assertion in sqlite_store_test.go.
-var _ coremem.SnapshotStore = (*SQLiteStore)(nil)
+// Compile-time check: SQLiteStore satisfies the sibling SnapshotStore.
+var _ SnapshotStore = (*SQLiteStore)(nil)

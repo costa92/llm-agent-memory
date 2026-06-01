@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-
-	coremem "github.com/costa92/llm-agent/memory"
 )
 
 // Reserved metadata keys written by Consolidator.Consolidate on
@@ -28,7 +26,7 @@ const (
 	MetaKeyPromotionCount = "_promotion_count"
 )
 
-// Consolidator wraps a *coremem.Manager and exposes a dedupe-aware
+// Consolidator wraps a sibling *Manager and exposes a dedupe-aware
 // Consolidate that mirrors coremem.Manager.Consolidate (copy
 // Working→Episodic by importance + min-age) but additionally:
 //
@@ -41,18 +39,18 @@ const (
 // Source items are NOT removed (mirrors coremem semantics). Pinned and
 // disabled status on the source are preserved verbatim by Update.
 type Consolidator struct {
-	mgr *coremem.Manager
+	mgr *Manager
 	cfg *config
 }
 
 // ErrManagerRequired is returned by NewConsolidator when the inner
-// *coremem.Manager is nil. (Same sentinel name as coremem's, but
+// *Manager is nil. (Same sentinel name as coremem's, but
 // distinct identity — callers should errors.Is on the local one.)
 var ErrManagerRequired = errors.New("memory: manager required")
 
-// NewConsolidator wraps an existing *coremem.Manager. Returns
+// NewConsolidator wraps an existing sibling *Manager. Returns
 // ErrManagerRequired if inner is nil.
-func NewConsolidator(inner *coremem.Manager, opts ...Option) (*Consolidator, error) {
+func NewConsolidator(inner *Manager, opts ...Option) (*Consolidator, error) {
 	if inner == nil {
 		return nil, ErrManagerRequired
 	}
@@ -70,7 +68,7 @@ func (c *Consolidator) observer() Observer { return c.cfg.observer }
 // source. Returns the number of items promoted in this call.
 //
 // Threshold defaults to 0.7 if unset (matches coremem).
-func (c *Consolidator) Consolidate(ctx context.Context, opts coremem.ConsolidateOptions) (int, error) {
+func (c *Consolidator) Consolidate(ctx context.Context, opts ConsolidateOptions) (int, error) {
 	if opts.Threshold <= 0 {
 		opts.Threshold = 0.7
 	}
@@ -78,7 +76,7 @@ func (c *Consolidator) Consolidate(ctx context.Context, opts coremem.Consolidate
 	if err != nil {
 		return 0, fmt.Errorf("memory: consolidate list: %w", err)
 	}
-	working := allItems[coremem.KindWorking]
+	working := allItems[KindWorking]
 	now := timeNow()
 	count := 0
 	for _, it := range working {
@@ -105,12 +103,12 @@ func (c *Consolidator) Consolidate(ctx context.Context, opts coremem.Consolidate
 			clone.Metadata = cp
 		}
 		clone.Metadata[MetaKeyPromotedFrom] = it.ID
-		if _, err := c.mgr.Add(ctx, coremem.KindEpisodic, clone); err != nil {
+		if _, err := c.mgr.Add(ctx, KindEpisodic, clone); err != nil {
 			return count, fmt.Errorf("memory: consolidate add: %w", err)
 		}
-		emit(c.observer(), EventAddTotal, map[string]any{"kind": coremem.KindEpisodic})
+		emit(c.observer(), EventAddTotal, map[string]any{"kind": KindEpisodic})
 		srcID := it.ID
-		err := c.mgr.Update(ctx, coremem.KindWorking, srcID, func(m *coremem.MemoryItem) {
+		err := c.mgr.Update(ctx, KindWorking, srcID, func(m *MemoryItem) {
 			if m.Metadata == nil {
 				m.Metadata = map[string]any{}
 			}
@@ -129,7 +127,7 @@ func (c *Consolidator) Consolidate(ctx context.Context, opts coremem.Consolidate
 // promotionCountOf reads MetaKeyPromotionCount from an item, tolerating
 // both int (what we write) and float64 (what JSON round-trips produce).
 // Returns 0 if absent or wrong type.
-func promotionCountOf(it coremem.MemoryItem) int {
+func promotionCountOf(it MemoryItem) int {
 	if it.Metadata == nil {
 		return 0
 	}
@@ -158,19 +156,19 @@ func promotionCountOf(it coremem.MemoryItem) int {
 // Active-but-empty kinds materialize as map keys with empty slices
 // (parity with the underlying ListAll contract — see scoped_lifecycle.go
 // listAllScoped fix in commit 68e17d8).
-func (c *Consolidator) listAllPaged(ctx context.Context, pageSize int) (map[coremem.Kind][]coremem.MemoryItem, error) {
+func (c *Consolidator) listAllPaged(ctx context.Context, pageSize int) (map[Kind][]MemoryItem, error) {
 	if pageSize <= 0 {
 		pageSize = 200
 	}
-	out := make(map[coremem.Kind][]coremem.MemoryItem)
-	cursors := map[coremem.Kind]string{}
+	out := make(map[Kind][]MemoryItem)
+	cursors := map[Kind]string{}
 	for {
-		pages, err := c.mgr.ListAll(ctx, coremem.ListFilter{}, pageSize, cursors)
+		pages, err := c.mgr.ListAll(ctx, ListFilter{}, pageSize, cursors)
 		if err != nil {
 			return nil, fmt.Errorf("paged list: %w", err)
 		}
 		anyMore := false
-		nextCursors := map[coremem.Kind]string{}
+		nextCursors := map[Kind]string{}
 		for kind, page := range pages {
 			out[kind] = append(out[kind], page.Items...)
 			if page.NextCursor != "" {
@@ -189,7 +187,7 @@ func (c *Consolidator) listAllPaged(ctx context.Context, pageSize int) (map[core
 // Observer is installed, emits one EventSnapshotItems and one
 // EventSnapshotVectorsBytes per kind in the returned snapshot map.
 // The dir parameter is forwarded verbatim; pass "" for in-memory only.
-func (c *Consolidator) ExportAll(ctx context.Context, dir string) (map[coremem.Kind]coremem.Snapshot, error) {
+func (c *Consolidator) ExportAll(ctx context.Context, dir string) (map[Kind]Snapshot, error) {
 	snaps, err := c.mgr.ExportAll(ctx, dir)
 	if err != nil {
 		return nil, err

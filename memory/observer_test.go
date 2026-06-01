@@ -4,7 +4,6 @@ import (
 	"context"
 	"sync"
 	"testing"
-	"time"
 
 	coremem "github.com/costa92/llm-agent/memory"
 )
@@ -116,7 +115,7 @@ func TestObserver_TypedNilInterface_PanicsAsDocumented(t *testing.T) {
 
 func TestObserver_ScopedLifecycleManager_AcceptsWithObserver(t *testing.T) {
 	rec := &recordingObserver{}
-	slm, err := NewScopedLifecycleManager(newCoreScopedManager(t), WithObserver(rec))
+	slm, err := NewScopedLifecycleManager(newScopedManager(t), WithObserver(rec))
 	if err != nil {
 		t.Fatalf("NewScopedLifecycleManager: %v", err)
 	}
@@ -127,7 +126,16 @@ func TestObserver_ScopedLifecycleManager_AcceptsWithObserver(t *testing.T) {
 
 func TestObserver_Consolidator_AcceptsWithObserver(t *testing.T) {
 	rec := &recordingObserver{}
-	c, err := NewConsolidator(newCoreManager(t), WithObserver(rec))
+	w, e, s := newWorking(t), newEpisodic(t), newSemantic(t)
+	mgr, err := NewManager(Options{
+		Working:  TierOptions{Memory: w, Lister: w, Exporter: w, Importer: w},
+		Episodic: TierOptions{Memory: e, Lister: e, Exporter: e, Importer: e},
+		Semantic: TierOptions{Memory: s, Lister: s, Exporter: s, Importer: s},
+	})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	c, err := NewConsolidator(mgr, WithObserver(rec))
 	if err != nil {
 		t.Fatalf("NewConsolidator: %v", err)
 	}
@@ -138,7 +146,15 @@ func TestObserver_Consolidator_AcceptsWithObserver(t *testing.T) {
 
 func TestObserver_UnifiedSearcher_AcceptsWithObserver(t *testing.T) {
 	rec := &recordingObserver{}
-	u, err := NewUnifiedSearcher(newCoreManager(t), WithObserver(rec))
+	mgr, err := NewManager(Options{
+		Working:  TierOptions{Memory: newWorking(t)},
+		Episodic: TierOptions{Memory: newEpisodic(t)},
+		Semantic: TierOptions{Memory: newSemantic(t)},
+	})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	u, err := NewUnifiedSearcher(mgr, WithObserver(rec))
 	if err != nil {
 		t.Fatalf("NewUnifiedSearcher: %v", err)
 	}
@@ -148,36 +164,29 @@ func TestObserver_UnifiedSearcher_AcceptsWithObserver(t *testing.T) {
 }
 
 func TestObserver_B2_WorkingEvictionStillPicksLowestScoredItem(t *testing.T) {
-	// B-2 — embed-reuse — lives inside coremem.WorkingMemory's private
-	// evictIfOverCapacity. It cannot be wrapped from this sibling. This
-	// test does NOT assert embed call count (that would require an
-	// embedder spy that does not exist in the sibling); it pins the
-	// observable property B-2 promises to preserve: when capacity is
-	// exceeded, the LOWEST-scored item is evicted. When the upstream
+	// B-2 — embed-reuse — lives inside the working engine's private
+	// evictIfOverCapacity. This test does NOT assert embed call count
+	// (that would require an embedder spy that does not exist here); it
+	// pins the observable property B-2 promises to preserve: when capacity
+	// is exceeded, the LOWEST-scored item is evicted. When the upstream
 	// optimization lands, this test must continue to pass.
-	w, err := coremem.NewWorking(newCoreEmbedder(), coremem.WorkingOptions{
-		Capacity: 2,
-		Decay:    24 * time.Hour,
-	})
-	if err != nil {
-		t.Fatalf("NewWorking: %v", err)
-	}
-	mgr, err := coremem.NewManager(coremem.ManagerOptions{
-		Working:  w,
-		Episodic: newCoreEpisodic(t),
-		Semantic: newCoreSemantic(t),
+	w := newWorkingWithCapacity(t, 2)
+	mgr, err := NewManager(Options{
+		Working:  TierOptions{Memory: w},
+		Episodic: TierOptions{Memory: newEpisodic(t)},
+		Semantic: TierOptions{Memory: newSemantic(t)},
 	})
 	if err != nil {
 		t.Fatalf("NewManager: %v", err)
 	}
 	ctx := context.Background()
-	if _, err := mgr.Add(ctx, coremem.KindWorking, coremem.MemoryItem{Content: "low", Importance: 0.1}); err != nil {
+	if _, err := mgr.Add(ctx, coremem.KindWorking, MemoryItem{Content: "low", Importance: 0.1}); err != nil {
 		t.Fatalf("Add low: %v", err)
 	}
-	if _, err := mgr.Add(ctx, coremem.KindWorking, coremem.MemoryItem{Content: "mid", Importance: 0.5}); err != nil {
+	if _, err := mgr.Add(ctx, coremem.KindWorking, MemoryItem{Content: "mid", Importance: 0.5}); err != nil {
 		t.Fatalf("Add mid: %v", err)
 	}
-	if _, err := mgr.Add(ctx, coremem.KindWorking, coremem.MemoryItem{Content: "high", Importance: 0.9}); err != nil {
+	if _, err := mgr.Add(ctx, coremem.KindWorking, MemoryItem{Content: "high", Importance: 0.9}); err != nil {
 		t.Fatalf("Add high (triggers eviction): %v", err)
 	}
 

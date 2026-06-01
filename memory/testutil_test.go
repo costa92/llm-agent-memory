@@ -16,10 +16,65 @@ func newCoreEmbedder() coremem.Embedder {
 	return llm.NewScriptedLLM(llm.WithEmbedDimensions(64))
 }
 
-// newCoreWorking builds a *coremem.WorkingMemory with capacity 16
-// and a 24h decay window. Capacity is generous so eviction is not
-// triggered by the small test corpora.
-func newCoreWorking(t *testing.T) *coremem.WorkingMemory {
+// newEmbedder returns the deterministic embedder used by local-engine tests.
+func newEmbedder() Embedder {
+	return newCoreEmbedder()
+}
+
+// newWorking builds a local *WorkingMemory with capacity 16 and a 24h
+// decay window. This is the preferred constructor for sibling-owned tests.
+func newWorking(t *testing.T) *WorkingMemory {
+	t.Helper()
+	w, err := NewWorking(newEmbedder(), WorkingOptions{
+		Capacity: 16,
+		Decay:    24 * time.Hour,
+	})
+	if err != nil {
+		t.Fatalf("memory.NewWorking: %v", err)
+	}
+	return w
+}
+
+// newEpisodic builds a local *EpisodicMemory with default options.
+func newEpisodic(t *testing.T) *EpisodicMemory {
+	t.Helper()
+	m, err := NewEpisodic(newEmbedder(), EpisodicOptions{})
+	if err != nil {
+		t.Fatalf("memory.NewEpisodic: %v", err)
+	}
+	return m
+}
+
+// newSemantic builds a local *SemanticMemory with default options.
+func newSemantic(t *testing.T) *SemanticMemory {
+	t.Helper()
+	m, err := NewSemantic(newEmbedder(), SemanticOptions{})
+	if err != nil {
+		t.Fatalf("memory.NewSemantic: %v", err)
+	}
+	return m
+}
+
+// newWorkingWithCapacity builds a local *WorkingMemory with a custom
+// capacity while keeping the standard 24h decay.
+func newWorkingWithCapacity(t *testing.T, capacity int) *WorkingMemory {
+	t.Helper()
+	w, err := NewWorking(newEmbedder(), WorkingOptions{
+		Capacity: capacity,
+		Decay:    24 * time.Hour,
+	})
+	if err != nil {
+		t.Fatalf("memory.NewWorking(cap=%d): %v", capacity, err)
+	}
+	return w
+}
+
+// coreWorkingForAdapter builds a *coremem.WorkingMemory with capacity 16
+// and a 24h decay window. It exists for the few tests that must exercise
+// the core adapter bridge (AdaptCoreMemory / coremem.WithSanitizer); those
+// tests still need a genuine core memory to wrap. Capacity is generous so
+// eviction is not triggered by the small test corpora.
+func coreWorkingForAdapter(t *testing.T) *coremem.WorkingMemory {
 	t.Helper()
 	w, err := coremem.NewWorking(newCoreEmbedder(), coremem.WorkingOptions{
 		Capacity: 16,
@@ -51,26 +106,20 @@ func newCoreSemantic(t *testing.T) *coremem.SemanticMemory {
 	return m
 }
 
-// newCoreManager wires all three memory kinds into a *coremem.Manager.
-func newCoreManager(t *testing.T) *coremem.Manager {
+func newScopedManager(t *testing.T) *ScopedManager {
 	t.Helper()
-	mgr, err := coremem.NewManager(coremem.ManagerOptions{
-		Working:  newCoreWorking(t),
-		Episodic: newCoreEpisodic(t),
-		Semantic: newCoreSemantic(t),
+	w, e, s := newWorking(t), newEpisodic(t), newSemantic(t)
+	mgr, err := NewManager(Options{
+		Working:  TierOptions{Memory: w, Lister: w, Exporter: w, Importer: w},
+		Episodic: TierOptions{Memory: e, Lister: e, Exporter: e, Importer: e},
+		Semantic: TierOptions{Memory: s, Lister: s, Exporter: s, Importer: s},
 	})
 	if err != nil {
-		t.Fatalf("coremem.NewManager: %v", err)
+		t.Fatalf("NewManager: %v", err)
 	}
-	return mgr
-}
-
-// newCoreScopedManager wraps the manager produced by newCoreManager.
-func newCoreScopedManager(t *testing.T) *coremem.ScopedManager {
-	t.Helper()
-	sm, err := coremem.NewScopedManager(newCoreManager(t))
+	sm, err := NewScopedManager(mgr)
 	if err != nil {
-		t.Fatalf("coremem.NewScopedManager: %v", err)
+		t.Fatalf("NewScopedManager: %v", err)
 	}
 	return sm
 }
@@ -95,13 +144,13 @@ func newCoreWorkingWithCapacity(t *testing.T, capacity int) *coremem.WorkingMemo
 // that the wire format actually produces (int → float64, etc.) so
 // downstream readers like promotionCountOf are tested under the same
 // conditions an Import-from-disk path would see.
-func jsonRoundTripSnap(t *testing.T, snap coremem.Snapshot) coremem.Snapshot {
+func jsonRoundTripSnap(t *testing.T, snap Snapshot) Snapshot {
 	t.Helper()
 	b, err := json.Marshal(snap)
 	if err != nil {
 		t.Fatalf("json.Marshal snapshot: %v", err)
 	}
-	var out coremem.Snapshot
+	var out Snapshot
 	if err := json.Unmarshal(b, &out); err != nil {
 		t.Fatalf("json.Unmarshal snapshot: %v", err)
 	}

@@ -11,11 +11,11 @@ import (
 )
 
 // TestSQLiteStore_SatisfiesSnapshotStore is a compile-time + runtime
-// assertion that SQLiteStore satisfies the coremem.SnapshotStore
-// contract from llm-agent/memory/persistence.go:171-176.
+// assertion that SQLiteStore satisfies the sibling SnapshotStore
+// contract.
 func TestSQLiteStore_SatisfiesSnapshotStore(t *testing.T) {
 	store := newTempSQLiteStore(t)
-	var _ coremem.SnapshotStore = store // compile-time check
+	var _ SnapshotStore = store // compile-time check
 	// Touch each interface method via a no-op call.
 	if _, err := store.List(context.Background()); err != nil {
 		t.Errorf("List on empty store: %v", err)
@@ -31,12 +31,12 @@ func TestSQLiteStore_SatisfiesSnapshotStore(t *testing.T) {
 func TestSQLiteStore_Save_Load_RoundTripsSingleKind(t *testing.T) {
 	store := newTempSQLiteStore(t)
 	ctx := context.Background()
-	snap := coremem.Snapshot{
-		Version: coremem.SnapshotVersion,
+	snap := Snapshot{
+		Version: SnapshotVersion,
 		Kind:    coremem.KindEpisodic,
-		Items: []coremem.SnapshotItem{
+		Items: []SnapshotItem{
 			{
-				Item: coremem.MemoryItem{
+				Item: MemoryItem{
 					ID: "a", Content: "alpha", Importance: 0.5,
 					CreatedAt: time.Date(2026, 5, 26, 12, 0, 0, 0, time.UTC),
 				},
@@ -57,12 +57,12 @@ func TestSQLiteStore_Save_Load_RoundTripsSingleKind(t *testing.T) {
 func TestSQLiteStore_LoadKind_SelectsExactKind(t *testing.T) {
 	store := newTempSQLiteStore(t)
 	ctx := context.Background()
-	mk := func(kind coremem.Kind, content string) coremem.Snapshot {
-		return coremem.Snapshot{
-			Version: coremem.SnapshotVersion,
+	mk := func(kind Kind, content string) Snapshot {
+		return Snapshot{
+			Version: SnapshotVersion,
 			Kind:    kind,
-			Items: []coremem.SnapshotItem{
-				{Item: coremem.MemoryItem{ID: "x", Content: content}, Vector: []float32{1}},
+			Items: []SnapshotItem{
+				{Item: MemoryItem{ID: "x", Content: content}, Vector: []float32{1}},
 			},
 		}
 	}
@@ -100,10 +100,10 @@ func TestSQLiteStore_Delete_RemovesAllKindsAtKey(t *testing.T) {
 	store := newTempSQLiteStore(t)
 	ctx := context.Background()
 	for _, kind := range []coremem.Kind{coremem.KindWorking, coremem.KindEpisodic} {
-		if err := store.Save(ctx, "k", coremem.Snapshot{
-			Version: coremem.SnapshotVersion,
+		if err := store.Save(ctx, "k", Snapshot{
+			Version: SnapshotVersion,
 			Kind:    kind,
-			Items:   []coremem.SnapshotItem{{Item: coremem.MemoryItem{ID: "x"}, Vector: []float32{1}}},
+			Items:   []SnapshotItem{{Item: MemoryItem{ID: "x"}, Vector: []float32{1}}},
 		}); err != nil {
 			t.Fatalf("Save %v: %v", kind, err)
 		}
@@ -124,19 +124,19 @@ func TestSQLiteStore_List_ReturnsSortedUniqueKeys(t *testing.T) {
 	ctx := context.Background()
 	keys := []string{"charlie", "alpha", "bravo"}
 	for _, k := range keys {
-		if err := store.Save(ctx, k, coremem.Snapshot{
-			Version: coremem.SnapshotVersion,
+		if err := store.Save(ctx, k, Snapshot{
+			Version: SnapshotVersion,
 			Kind:    coremem.KindWorking,
-			Items:   []coremem.SnapshotItem{{Item: coremem.MemoryItem{ID: "x"}, Vector: []float32{1}}},
+			Items:   []SnapshotItem{{Item: MemoryItem{ID: "x"}, Vector: []float32{1}}},
 		}); err != nil {
 			t.Fatalf("Save %q: %v", k, err)
 		}
 	}
 	// Save same key with a different kind — must not duplicate in List.
-	if err := store.Save(ctx, "alpha", coremem.Snapshot{
-		Version: coremem.SnapshotVersion,
+	if err := store.Save(ctx, "alpha", Snapshot{
+		Version: SnapshotVersion,
 		Kind:    coremem.KindEpisodic,
-		Items:   []coremem.SnapshotItem{{Item: coremem.MemoryItem{ID: "x"}, Vector: []float32{1}}},
+		Items:   []SnapshotItem{{Item: MemoryItem{ID: "x"}, Vector: []float32{1}}},
 	}); err != nil {
 		t.Fatalf("Save alpha episodic: %v", err)
 	}
@@ -158,15 +158,15 @@ func TestSQLiteStore_List_ReturnsSortedUniqueKeys(t *testing.T) {
 func TestSQLiteStore_Save_OnConflict_OverwritesExistingRow(t *testing.T) {
 	store := newTempSQLiteStore(t)
 	ctx := context.Background()
-	snap1 := coremem.Snapshot{
-		Version: coremem.SnapshotVersion,
+	snap1 := Snapshot{
+		Version: SnapshotVersion,
 		Kind:    coremem.KindWorking,
-		Items:   []coremem.SnapshotItem{{Item: coremem.MemoryItem{ID: "a", Content: "v1"}, Vector: []float32{1}}},
+		Items:   []SnapshotItem{{Item: MemoryItem{ID: "a", Content: "v1"}, Vector: []float32{1}}},
 	}
-	snap2 := coremem.Snapshot{
-		Version: coremem.SnapshotVersion,
+	snap2 := Snapshot{
+		Version: SnapshotVersion,
 		Kind:    coremem.KindWorking,
-		Items:   []coremem.SnapshotItem{{Item: coremem.MemoryItem{ID: "a", Content: "v2"}, Vector: []float32{2}}},
+		Items:   []SnapshotItem{{Item: MemoryItem{ID: "a", Content: "v2"}, Vector: []float32{2}}},
 	}
 	if err := store.Save(ctx, "k", snap1); err != nil {
 		t.Fatalf("Save v1: %v", err)
@@ -269,11 +269,11 @@ func TestSQLiteStore_Save_ConcurrentSameKey_SerializesCleanly(t *testing.T) {
 	for g := 0; g < goroutines; g++ {
 		go func(g int) {
 			for i := 0; i < writesPerGoroutine; i++ {
-				snap := coremem.Snapshot{
-					Version: coremem.SnapshotVersion,
+				snap := Snapshot{
+					Version: SnapshotVersion,
 					Kind:    coremem.KindWorking,
-					Items: []coremem.SnapshotItem{
-						{Item: coremem.MemoryItem{ID: "x", Content: "w"}, Vector: []float32{1}},
+					Items: []SnapshotItem{
+						{Item: MemoryItem{ID: "x", Content: "w"}, Vector: []float32{1}},
 					},
 				}
 				if err := store.Save(ctx, "race-key", snap); err != nil {
@@ -304,16 +304,17 @@ func TestSQLiteStore_Save_ConcurrentSameKey_SerializesCleanly(t *testing.T) {
 	}
 }
 
-func TestSQLiteStore_RoundTripsThroughCoreExportAllImportAll(t *testing.T) {
+func TestSQLiteStore_RoundTripsThroughSiblingExportAllImportAll(t *testing.T) {
 	store := newTempSQLiteStore(t)
 
 	// Build a manager wired to use the SQLite store as its persistence
-	// backend. This proves SQLiteStore is a drop-in for FilesystemStore
-	// at the coremem.ManagerOptions.SnapshotStore slot.
-	mgr, err := coremem.NewManager(coremem.ManagerOptions{
-		Working:       newCoreWorking(t),
-		Episodic:      newCoreEpisodic(t),
-		Semantic:      newCoreSemantic(t),
+	// backend. This proves SQLiteStore works on the sibling Manager's
+	// SnapshotStore path, not just the upstream core manager surface.
+	w, e, s := newWorking(t), newEpisodic(t), newSemantic(t)
+	mgr, err := NewManager(Options{
+		Working:       TierOptions{Memory: w, Lister: w, Exporter: w, Importer: w},
+		Episodic:      TierOptions{Memory: e, Lister: e, Exporter: e, Importer: e},
+		Semantic:      TierOptions{Memory: s, Lister: s, Exporter: s, Importer: s},
 		SnapshotStore: store,
 	})
 	if err != nil {
@@ -322,13 +323,13 @@ func TestSQLiteStore_RoundTripsThroughCoreExportAllImportAll(t *testing.T) {
 
 	ctx := context.Background()
 	// Seed every active kind so all three snapshots round-trip.
-	if _, err := mgr.Add(ctx, coremem.KindWorking, coremem.MemoryItem{Content: "w1", Importance: 0.3}); err != nil {
+	if _, err := mgr.Add(ctx, coremem.KindWorking, MemoryItem{Content: "w1", Importance: 0.3}); err != nil {
 		t.Fatalf("Add working: %v", err)
 	}
-	if _, err := mgr.Add(ctx, coremem.KindEpisodic, coremem.MemoryItem{Content: "e1", Importance: 0.5}); err != nil {
+	if _, err := mgr.Add(ctx, coremem.KindEpisodic, MemoryItem{Content: "e1", Importance: 0.5}); err != nil {
 		t.Fatalf("Add episodic: %v", err)
 	}
-	if _, err := mgr.Add(ctx, coremem.KindSemantic, coremem.MemoryItem{Content: "s1", Tags: []string{"tag"}, Importance: 0.7}); err != nil {
+	if _, err := mgr.Add(ctx, coremem.KindSemantic, MemoryItem{Content: "s1", Tags: []string{"tag"}, Importance: 0.7}); err != nil {
 		t.Fatalf("Add semantic: %v", err)
 	}
 
@@ -343,16 +344,17 @@ func TestSQLiteStore_RoundTripsThroughCoreExportAllImportAll(t *testing.T) {
 
 	// Build a SECOND, empty manager backed by the SAME store and
 	// ImportAll from the persisted snapshots — proves Save was real.
-	mgr2, err := coremem.NewManager(coremem.ManagerOptions{
-		Working:       newCoreWorking(t),
-		Episodic:      newCoreEpisodic(t),
-		Semantic:      newCoreSemantic(t),
+	w2, e2, s2 := newWorking(t), newEpisodic(t), newSemantic(t)
+	mgr2, err := NewManager(Options{
+		Working:       TierOptions{Memory: w2, Lister: w2, Exporter: w2, Importer: w2},
+		Episodic:      TierOptions{Memory: e2, Lister: e2, Exporter: e2, Importer: e2},
+		Semantic:      TierOptions{Memory: s2, Lister: s2, Exporter: s2, Importer: s2},
 		SnapshotStore: store,
 	})
 	if err != nil {
 		t.Fatalf("NewManager #2: %v", err)
 	}
-	report, err := mgr2.ImportAll(ctx, nil, "session-rt", coremem.ImportReplace)
+	report, err := mgr2.ImportAll(ctx, nil, "session-rt", ImportReplace)
 	if err != nil {
 		t.Fatalf("ImportAll: %v", err)
 	}

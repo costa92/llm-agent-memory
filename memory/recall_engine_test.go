@@ -28,13 +28,13 @@ func TestRecallEngine_PublicShape_Compiles(t *testing.T) {
 
 	// UnifiedRecall documented fields.
 	_ = UnifiedRecall{
-		Results:      []coremem.SearchResult{},
+		Results:      []SearchResult{},
 		PerTier:      map[coremem.Kind]TierStats{coremem.KindWorking: {Considered: 0, Returned: 0}},
 		TotalDropped: 0,
 	}
 
 	// Constructor signature.
-	mgr, _ := NewManager(Options{Working: TierOptions{Memory: newCoreWorking(t)}})
+	mgr, _ := NewManager(Options{Working: TierOptions{Memory: newWorking(t)}})
 	eng, err := NewRecallEngine(mgr)
 	if err != nil {
 		t.Fatalf("NewRecallEngine: %v", err)
@@ -61,21 +61,37 @@ func TestRecallEngine_PublicShape_Compiles(t *testing.T) {
 // dedupe key, this test surfaces the regression immediately.
 func TestRecallEngine_Recall_ParityWithUnifiedSearcher(t *testing.T) {
 	ctx := context.Background()
-	w, e, s := newCoreWorking(t), newCoreEpisodic(t), newCoreSemantic(t)
-	coreMgr, _ := coremem.NewManager(coremem.ManagerOptions{Working: w, Episodic: e, Semantic: s})
-
+	w, e, s := newWorking(t), newEpisodic(t), newSemantic(t)
 	// Seed each tier with one distinct + one shared item.
+	type adder interface {
+		Add(context.Context, MemoryItem) (string, error)
+	}
 	for _, kind := range []coremem.Kind{coremem.KindWorking, coremem.KindEpisodic, coremem.KindSemantic} {
-		if _, err := coreMgr.Add(ctx, kind, coremem.MemoryItem{Content: "shared-across-tiers"}); err != nil {
+		mem := func(k coremem.Kind) adder {
+			switch k {
+			case coremem.KindWorking:
+				return w
+			case coremem.KindEpisodic:
+				return e
+			default:
+				return s
+			}
+		}(kind)
+		if _, err := mem.Add(ctx, MemoryItem{Content: "shared-across-tiers"}); err != nil {
 			t.Fatalf("Add shared %s: %v", kind, err)
 		}
 	}
-	if _, err := coreMgr.Add(ctx, coremem.KindWorking, coremem.MemoryItem{Content: "w-only"}); err != nil {
+	if _, err := w.Add(ctx, MemoryItem{Content: "w-only"}); err != nil {
 		t.Fatalf("Add w-only: %v", err)
 	}
 
 	// V0 path: UnifiedSearcher.
-	uni, err := NewUnifiedSearcher(coreMgr)
+	mgr, _ := NewManager(Options{
+		Working:  TierOptions{Memory: w},
+		Episodic: TierOptions{Memory: e},
+		Semantic: TierOptions{Memory: s},
+	})
+	uni, err := NewUnifiedSearcher(mgr)
 	if err != nil {
 		t.Fatalf("NewUnifiedSearcher: %v", err)
 	}
@@ -84,12 +100,7 @@ func TestRecallEngine_Recall_ParityWithUnifiedSearcher(t *testing.T) {
 		t.Fatalf("SearchUnified: %v", err)
 	}
 
-	// V1 path: RecallEngine via sibling Manager wrapping coreMgr.
-	mgr, _ := NewManager(Options{
-		Working:  TierOptions{Memory: w},
-		Episodic: TierOptions{Memory: e},
-		Semantic: TierOptions{Memory: s},
-	})
+	// V1 path: RecallEngine over the same sibling manager.
 	eng, err := NewRecallEngine(mgr)
 	if err != nil {
 		t.Fatalf("NewRecallEngine: %v", err)
@@ -122,14 +133,14 @@ func TestRecallEngine_Recall_ParityWithUnifiedSearcher(t *testing.T) {
 
 func TestRecallEngine_Recall_TierMask_Working_OmitsOtherTiers(t *testing.T) {
 	ctx := context.Background()
-	w, e, s := newCoreWorking(t), newCoreEpisodic(t), newCoreSemantic(t)
-	if _, err := w.Add(ctx, coremem.MemoryItem{Content: "w-only"}); err != nil {
+	w, e, s := newWorking(t), newEpisodic(t), newSemantic(t)
+	if _, err := w.Add(ctx, MemoryItem{Content: "w-only"}); err != nil {
 		t.Fatalf("w Add: %v", err)
 	}
-	if _, err := e.Add(ctx, coremem.MemoryItem{Content: "e-only"}); err != nil {
+	if _, err := e.Add(ctx, MemoryItem{Content: "e-only"}); err != nil {
 		t.Fatalf("e Add: %v", err)
 	}
-	if _, err := s.Add(ctx, coremem.MemoryItem{Content: "s-only"}); err != nil {
+	if _, err := s.Add(ctx, MemoryItem{Content: "s-only"}); err != nil {
 		t.Fatalf("s Add: %v", err)
 	}
 	mgr, _ := NewManager(Options{
@@ -157,9 +168,9 @@ func TestRecallEngine_Recall_TierMask_Working_OmitsOtherTiers(t *testing.T) {
 
 func TestRecallEngine_Recall_PerTierBudget_CapsCandidates(t *testing.T) {
 	ctx := context.Background()
-	w := newCoreWorking(t)
+	w := newWorking(t)
 	for i := 0; i < 5; i++ {
-		if _, err := w.Add(ctx, coremem.MemoryItem{Content: "bursty"}); err != nil {
+		if _, err := w.Add(ctx, MemoryItem{Content: "bursty"}); err != nil {
 			t.Fatalf("w Add: %v", err)
 		}
 	}
@@ -185,17 +196,17 @@ func TestRecallEngine_Recall_PerTierBudget_CapsCandidates(t *testing.T) {
 // recall-able via RecallEngine.Recall (D-2). The two breaks compose.
 func TestRecallEngine_OverWithSanitizerWrappedManager_NoCast(t *testing.T) {
 	ctx := context.Background()
-	w := newCoreWorking(t)
+	w := coreWorkingForAdapter(t)
 	tagger := coremem.SanitizerFunc(func(_ context.Context, _ coremem.Kind, it coremem.MemoryItem) (coremem.MemoryItem, bool, error) {
 		it.Tags = append(it.Tags, "via-sanitizer")
 		return it, true, nil
 	})
 	wrapped := coremem.WithSanitizer(w, tagger)
-	mgr, err := NewManager(Options{Working: TierOptions{Memory: wrapped}})
+	mgr, err := NewManager(Options{Working: TierOptions{Memory: AdaptCoreMemory(wrapped), Lister: AdaptCoreLister(w)}})
 	if err != nil {
 		t.Fatalf("NewManager(wrapped): %v", err)
 	}
-	if _, err := mgr.Add(ctx, coremem.KindWorking, coremem.MemoryItem{Content: "alpha"}); err != nil {
+	if _, err := mgr.Add(ctx, coremem.KindWorking, MemoryItem{Content: "alpha"}); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
 	eng, err := NewRecallEngine(mgr)

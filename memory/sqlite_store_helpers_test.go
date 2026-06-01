@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"sync/atomic"
 	"testing"
-
-	coremem "github.com/costa92/llm-agent/memory"
 )
 
 var sqliteTestCounter uint64
@@ -34,11 +32,11 @@ func newTempSQLiteStore(t *testing.T) *SQLiteStore {
 	return store
 }
 
-// assertSnapshotEqual compares two coremem.Snapshot values without
+// assertSnapshotEqual compares two Snapshot values without
 // using reflect.DeepEqual — Item.CreatedAt / AccessedAt come back
 // from JSON without monotonic clock, so reflect.DeepEqual on a
 // round-trip is a known false-negative trap (see M2 Task 11 BLOCKED).
-func assertSnapshotEqual(t *testing.T, got, want coremem.Snapshot) {
+func assertSnapshotEqual(t *testing.T, got, want Snapshot) {
 	t.Helper()
 	if got.Version != want.Version {
 		t.Errorf("Version: got %d, want %d", got.Version, want.Version)
