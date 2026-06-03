@@ -8,13 +8,13 @@ import (
 	"sync"
 	"time"
 
-	coremem "github.com/costa92/llm-agent/memory"
+	contractmem "github.com/costa92/llm-agent-contract/memory"
 )
 
 var (
-	ErrNotFound         = coremem.ErrNotFound
-	ErrEmptyQuery       = coremem.ErrEmptyQuery
-	ErrEmbedderRequired = coremem.ErrEmbedderRequired
+	ErrNotFound         = contractmem.ErrNotFound
+	ErrEmptyQuery       = contractmem.ErrEmptyQuery
+	ErrEmbedderRequired = contractmem.ErrEmbedderRequired
 )
 
 type scoredStore struct {

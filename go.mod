@@ -1,10 +1,9 @@
-module github.com/costa92/llm-agent-memory
+module github.com/costa92/llm-agent-memory/v2
 
 go 1.26.0
 
 require (
-	github.com/costa92/llm-agent v0.7.0
-	github.com/costa92/llm-agent-contract v0.0.0
+	github.com/costa92/llm-agent-contract v0.1.0
 	modernc.org/sqlite v1.50.1
 )
 
@@ -18,9 +17,4 @@ require (
 	modernc.org/libc v1.72.3 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
-)
-
-replace (
-	github.com/costa92/llm-agent => ../llm-agent
-	github.com/costa92/llm-agent-contract => ../llm-agent-contract
 )

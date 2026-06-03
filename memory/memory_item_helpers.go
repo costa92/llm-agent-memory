@@ -1,21 +1,36 @@
 package memory
 
-import coremem "github.com/costa92/llm-agent/memory"
+import contractmem "github.com/costa92/llm-agent-contract/memory"
+
+// The eight metadata helpers (Get/Set Source + Category, Is/Set Pinned
+// + Disabled) and the Source classification constants now live in the
+// contract leaf github.com/costa92/llm-agent-contract/memory. They are
+// re-exported here so existing in-package callers keep using the bare
+// names with identical behavior (the contract impl writes the same
+// reserved "_"-prefixed metadata keys this package always used).
 
 const (
-	localMetaKeySource   = "_source"
-	localMetaKeyCategory = "_category"
-	localMetaKeyPinned   = "_pinned"
-	localMetaKeyDisabled = "_disabled"
+	SourceUserSaved     = contractmem.SourceUserSaved
+	SourceAgentInferred = contractmem.SourceAgentInferred
+	SourceSystem        = contractmem.SourceSystem
+	SourceUnknown       = contractmem.SourceUnknown
 )
 
-const (
-	SourceUserSaved     = coremem.SourceUserSaved
-	SourceAgentInferred = coremem.SourceAgentInferred
-	SourceSystem        = coremem.SourceSystem
-	SourceUnknown       = coremem.SourceUnknown
-)
+// GetSource / SetSource / GetCategory / SetCategory / IsPinned /
+// SetPinned / IsDisabled / SetDisabled forward to the contract helpers
+// so there is exactly one behavior across the stack.
+func GetSource(it MemoryItem) Source            { return contractmem.GetSource(it) }
+func SetSource(it *MemoryItem, src Source)      { contractmem.SetSource(it, src) }
+func GetCategory(it MemoryItem) Category        { return contractmem.GetCategory(it) }
+func SetCategory(it *MemoryItem, cat Category)  { contractmem.SetCategory(it, cat) }
+func IsPinned(it MemoryItem) bool               { return contractmem.IsPinned(it) }
+func SetPinned(it *MemoryItem, pinned bool)     { contractmem.SetPinned(it, pinned) }
+func IsDisabled(it MemoryItem) bool             { return contractmem.IsDisabled(it) }
+func SetDisabled(it *MemoryItem, disabled bool) { contractmem.SetDisabled(it, disabled) }
 
+// NewSavedMemory builds a user-saved memory item: pinned, full
+// importance, tagged SourceUserSaved with the given category. Sibling-
+// owned constructor (not part of the contract leaf).
 func NewSavedMemory(content string, cat Category) MemoryItem {
 	it := MemoryItem{
 		Content:    content,
@@ -27,6 +42,9 @@ func NewSavedMemory(content string, cat Category) MemoryItem {
 	return it
 }
 
+// NewInferredMemory builds an agent-inferred memory item: unpinned,
+// importance clamped to the [0,1] confidence, tagged SourceAgentInferred
+// with the given category. Sibling-owned constructor.
 func NewInferredMemory(content string, cat Category, confidence float64) MemoryItem {
 	if confidence < 0 {
 		confidence = 0
@@ -42,100 +60,4 @@ func NewInferredMemory(content string, cat Category, confidence float64) MemoryI
 	SetSource(&it, SourceAgentInferred)
 	SetCategory(&it, cat)
 	return it
-}
-
-func GetSource(it MemoryItem) Source {
-	if it.Metadata == nil {
-		return SourceUnknown
-	}
-	raw, ok := it.Metadata[localMetaKeySource]
-	if !ok {
-		return SourceUnknown
-	}
-	s, ok := raw.(string)
-	if !ok {
-		return SourceUnknown
-	}
-	return Source(s)
-}
-
-func SetSource(it *MemoryItem, src Source) {
-	ensureMetadata(it)
-	if src == SourceUnknown {
-		delete(it.Metadata, localMetaKeySource)
-		return
-	}
-	it.Metadata[localMetaKeySource] = string(src)
-}
-
-func GetCategory(it MemoryItem) Category {
-	if it.Metadata == nil {
-		return ""
-	}
-	raw, ok := it.Metadata[localMetaKeyCategory]
-	if !ok {
-		return ""
-	}
-	s, ok := raw.(string)
-	if !ok {
-		return ""
-	}
-	return Category(s)
-}
-
-func SetCategory(it *MemoryItem, cat Category) {
-	ensureMetadata(it)
-	if cat == "" {
-		delete(it.Metadata, localMetaKeyCategory)
-		return
-	}
-	it.Metadata[localMetaKeyCategory] = string(cat)
-}
-
-func IsPinned(it MemoryItem) bool {
-	if it.Metadata == nil {
-		return false
-	}
-	raw, ok := it.Metadata[localMetaKeyPinned]
-	if !ok {
-		return false
-	}
-	pinned, ok := raw.(bool)
-	return ok && pinned
-}
-
-func SetPinned(it *MemoryItem, pinned bool) {
-	ensureMetadata(it)
-	if !pinned {
-		delete(it.Metadata, localMetaKeyPinned)
-		return
-	}
-	it.Metadata[localMetaKeyPinned] = true
-}
-
-func IsDisabled(it MemoryItem) bool {
-	if it.Metadata == nil {
-		return false
-	}
-	raw, ok := it.Metadata[localMetaKeyDisabled]
-	if !ok {
-		return false
-	}
-	disabled, ok := raw.(bool)
-	return ok && disabled
-}
-
-func SetDisabled(it *MemoryItem, disabled bool) {
-	ensureMetadata(it)
-	if !disabled {
-		delete(it.Metadata, localMetaKeyDisabled)
-		return
-	}
-	it.Metadata[localMetaKeyDisabled] = true
-}
-
-func ensureMetadata(it *MemoryItem) {
-	if it.Metadata == nil {
-		it.Metadata = make(map[string]any, 4)
-	}
 }

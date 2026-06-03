@@ -4,8 +4,6 @@ import (
 	"context"
 	"sync"
 	"testing"
-
-	coremem "github.com/costa92/llm-agent/memory"
 )
 
 // recordingObserver is a thread-safe test observer that captures every
@@ -180,22 +178,22 @@ func TestObserver_B2_WorkingEvictionStillPicksLowestScoredItem(t *testing.T) {
 		t.Fatalf("NewManager: %v", err)
 	}
 	ctx := context.Background()
-	if _, err := mgr.Add(ctx, coremem.KindWorking, MemoryItem{Content: "low", Importance: 0.1}); err != nil {
+	if _, err := mgr.Add(ctx, KindWorking, MemoryItem{Content: "low", Importance: 0.1}); err != nil {
 		t.Fatalf("Add low: %v", err)
 	}
-	if _, err := mgr.Add(ctx, coremem.KindWorking, MemoryItem{Content: "mid", Importance: 0.5}); err != nil {
+	if _, err := mgr.Add(ctx, KindWorking, MemoryItem{Content: "mid", Importance: 0.5}); err != nil {
 		t.Fatalf("Add mid: %v", err)
 	}
-	if _, err := mgr.Add(ctx, coremem.KindWorking, MemoryItem{Content: "high", Importance: 0.9}); err != nil {
+	if _, err := mgr.Add(ctx, KindWorking, MemoryItem{Content: "high", Importance: 0.9}); err != nil {
 		t.Fatalf("Add high (triggers eviction): %v", err)
 	}
 
-	pages, err := mgr.ListAll(ctx, coremem.ListFilter{}, 100, nil)
+	pages, err := mgr.ListAll(ctx, ListFilter{}, 100, nil)
 	if err != nil {
 		t.Fatalf("ListAll: %v", err)
 	}
 	contents := map[string]bool{}
-	for _, it := range pages[coremem.KindWorking].Items {
+	for _, it := range pages[KindWorking].Items {
 		contents[it.Content] = true
 	}
 	if contents["low"] {

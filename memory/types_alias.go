@@ -1,206 +1,70 @@
 package memory
 
 import (
-	"context"
-	"time"
-
-	coremem "github.com/costa92/llm-agent/memory"
+	contractmem "github.com/costa92/llm-agent-contract/memory"
 )
 
-type Kind = coremem.Kind
+// This file collapses the sibling-owned public surface onto the leaf
+// contract github.com/costa92/llm-agent-contract/memory. Every name
+// below is a thin alias / re-export of a contract symbol so the rest
+// of this package keeps compiling against bare names while the single
+// source of truth for the data + interface contract lives in the
+// contract module.
+
+// --- data + interface type aliases ---------------------------------------
+
+type Kind = contractmem.Kind
+type MemoryItem = contractmem.MemoryItem
+type SearchResult = contractmem.SearchResult
+type Stats = contractmem.Stats
+type Scope = contractmem.Scope
+type Source = contractmem.Source
+type Category = contractmem.Category
+type ListFilter = contractmem.ListFilter
+type ListPage = contractmem.ListPage
+type ForgetStrategy = contractmem.ForgetStrategy
+type ConsolidateOptions = contractmem.ConsolidateOptions
+type ForgetOptions = contractmem.ForgetOptions
+type Snapshot = contractmem.Snapshot
+type SnapshotItem = contractmem.SnapshotItem
+type ImportMode = contractmem.ImportMode
+type ImportReport = contractmem.ImportReport
+type Embedder = contractmem.Embedder
+
+type Memory = contractmem.Memory
+type Lister = contractmem.Lister
+type Exporter = contractmem.Exporter
+type Importer = contractmem.Importer
+type SnapshotStore = contractmem.SnapshotStore
+
+// --- const re-exports -----------------------------------------------------
 
 const (
-	KindWorking  = coremem.KindWorking
-	KindEpisodic = coremem.KindEpisodic
-	KindSemantic = coremem.KindSemantic
+	KindWorking  = contractmem.KindWorking
+	KindEpisodic = contractmem.KindEpisodic
+	KindSemantic = contractmem.KindSemantic
 
-	CategoryUser      = coremem.CategoryUser
-	CategoryFeedback  = coremem.CategoryFeedback
-	CategoryProject   = coremem.CategoryProject
-	CategoryReference = coremem.CategoryReference
+	CategoryUser      = contractmem.CategoryUser
+	CategoryFeedback  = contractmem.CategoryFeedback
+	CategoryProject   = contractmem.CategoryProject
+	CategoryReference = contractmem.CategoryReference
+
+	SnapshotVersion = contractmem.SnapshotVersion
+
+	ImportReplace = contractmem.ImportReplace
+	ImportMerge   = contractmem.ImportMerge
+	ImportUpsert  = contractmem.ImportUpsert
+
+	ForgetByImportance = contractmem.ForgetByImportance
+	ForgetByAge        = contractmem.ForgetByAge
+	ForgetByCapacity   = contractmem.ForgetByCapacity
 )
 
-type MemoryItem struct {
-	ID         string
-	Content    string
-	Tags       []string
-	Importance float64
-	CreatedAt  time.Time
-	AccessedAt time.Time
-	Metadata   map[string]any
-}
-
-type SearchResult struct {
-	Item  MemoryItem
-	Score float64
-}
-
-type Stats = coremem.Stats
-type Embedder = coremem.Embedder
-type ListFilter = coremem.ListFilter
-type Scope = coremem.Scope
-type Source = coremem.Source
-type Category = coremem.Category
-type ForgetStrategy = coremem.ForgetStrategy
-type ConsolidateOptions = coremem.ConsolidateOptions
-type ForgetOptions = coremem.ForgetOptions
-
-type ListPage struct {
-	Items      []MemoryItem
-	NextCursor string
-}
-
-type Memory any
-
-type Lister interface {
-	List(ctx context.Context, filter ListFilter, pageSize int, cursor string) (ListPage, error)
-}
-
-type Snapshot struct {
-	Version int            `json:"version"`
-	Kind    Kind           `json:"kind"`
-	Items   []SnapshotItem `json:"items"`
-}
-
-type SnapshotItem struct {
-	Item   MemoryItem `json:"item"`
-	Vector []float32  `json:"vector"`
-}
-
-type ImportMode string
-
-type ImportReport struct {
-	Loaded   int     `json:"loaded"`
-	Skipped  int     `json:"skipped"`
-	Replaced int     `json:"replaced"`
-	Errors   []error `json:"-"`
-}
-
-type Exporter interface {
-	Export(ctx context.Context) (Snapshot, error)
-}
-
-type Importer interface {
-	Import(ctx context.Context, snap Snapshot, mode ImportMode) (ImportReport, error)
-}
-
-type SnapshotStore interface {
-	Save(ctx context.Context, key string, snap Snapshot) error
-	Load(ctx context.Context, key string) (Snapshot, error)
-	Delete(ctx context.Context, key string) error
-	List(ctx context.Context) ([]string, error)
-}
-
-const (
-	SnapshotVersion = coremem.SnapshotVersion
-
-	ImportReplace ImportMode = "replace"
-	ImportMerge   ImportMode = "merge"
-	ImportUpsert  ImportMode = "upsert"
-
-	ForgetByImportance = coremem.ForgetByImportance
-	ForgetByAge        = coremem.ForgetByAge
-	ForgetByCapacity   = coremem.ForgetByCapacity
-)
+// --- sentinel re-exports --------------------------------------------------
 
 var (
-	ErrSnapshotVersionMismatch    = coremem.ErrSnapshotVersionMismatch
-	ErrSnapshotKindMismatch       = coremem.ErrSnapshotKindMismatch
-	ErrSnapshotStoreNotConfigured = coremem.ErrSnapshotStoreNotConfigured
+	ErrKindDisabled               = contractmem.ErrKindDisabled
+	ErrSnapshotVersionMismatch    = contractmem.ErrSnapshotVersionMismatch
+	ErrSnapshotKindMismatch       = contractmem.ErrSnapshotKindMismatch
+	ErrSnapshotStoreNotConfigured = contractmem.ErrSnapshotStoreNotConfigured
 )
-
-func snapshotFromCore(snap coremem.Snapshot) Snapshot {
-	items := make([]SnapshotItem, len(snap.Items))
-	for i, item := range snap.Items {
-		items[i] = SnapshotItem{
-			Item:   memoryItemFromCore(item.Item),
-			Vector: append([]float32(nil), item.Vector...),
-		}
-	}
-	return Snapshot{
-		Version: snap.Version,
-		Kind:    snap.Kind,
-		Items:   items,
-	}
-}
-
-func snapshotToCore(snap Snapshot) coremem.Snapshot {
-	items := make([]coremem.SnapshotItem, len(snap.Items))
-	for i, item := range snap.Items {
-		items[i] = coremem.SnapshotItem{
-			Item:   memoryItemToCore(item.Item),
-			Vector: append([]float32(nil), item.Vector...),
-		}
-	}
-	return coremem.Snapshot{
-		Version: snap.Version,
-		Kind:    snap.Kind,
-		Items:   items,
-	}
-}
-
-func importReportFromCore(rpt coremem.ImportReport) ImportReport {
-	return ImportReport{
-		Loaded:   rpt.Loaded,
-		Skipped:  rpt.Skipped,
-		Replaced: rpt.Replaced,
-		Errors:   append([]error(nil), rpt.Errors...),
-	}
-}
-
-func memoryItemFromCore(item coremem.MemoryItem) MemoryItem {
-	return MemoryItem{
-		ID:         item.ID,
-		Content:    item.Content,
-		Tags:       append([]string(nil), item.Tags...),
-		Importance: item.Importance,
-		CreatedAt:  item.CreatedAt,
-		AccessedAt: item.AccessedAt,
-		Metadata:   cloneMetadata(item.Metadata),
-	}
-}
-
-func memoryItemToCore(item MemoryItem) coremem.MemoryItem {
-	return coremem.MemoryItem{
-		ID:         item.ID,
-		Content:    item.Content,
-		Tags:       append([]string(nil), item.Tags...),
-		Importance: item.Importance,
-		CreatedAt:  item.CreatedAt,
-		AccessedAt: item.AccessedAt,
-		Metadata:   cloneMetadata(item.Metadata),
-	}
-}
-
-func searchResultsFromCore(results []coremem.SearchResult) []SearchResult {
-	out := make([]SearchResult, len(results))
-	for i, result := range results {
-		out[i] = SearchResult{
-			Item:  memoryItemFromCore(result.Item),
-			Score: result.Score,
-		}
-	}
-	return out
-}
-
-func listPageFromCore(page coremem.ListPage) ListPage {
-	items := make([]MemoryItem, len(page.Items))
-	for i, item := range page.Items {
-		items[i] = memoryItemFromCore(item)
-	}
-	return ListPage{
-		Items:      items,
-		NextCursor: page.NextCursor,
-	}
-}
-
-func cloneMetadata(in map[string]any) map[string]any {
-	if in == nil {
-		return nil
-	}
-	out := make(map[string]any, len(in))
-	for k, v := range in {
-		out[k] = v
-	}
-	return out
-}

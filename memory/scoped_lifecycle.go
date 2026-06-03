@@ -5,8 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"time"
-
-	coremem "github.com/costa92/llm-agent/memory"
 )
 
 // ScopedLifecycleManager wraps a sibling *ScopedManager and adds three
@@ -62,7 +60,7 @@ func (s *ScopedLifecycleManager) ConsolidateScoped(ctx context.Context, opts Con
 	if err != nil {
 		return 0, fmt.Errorf("memory: list working: %w", err)
 	}
-	working := allItems[coremem.KindWorking]
+	working := allItems[KindWorking]
 	count := 0
 	for _, it := range working {
 		if it.Importance < opts.Threshold {
@@ -78,7 +76,7 @@ func (s *ScopedLifecycleManager) ConsolidateScoped(ctx context.Context, opts Con
 		}
 		clone := it
 		clone.ID = ""
-		if _, err := mgr.Add(ctx, coremem.KindEpisodic, clone); err != nil {
+		if _, err := mgr.Add(ctx, KindEpisodic, clone); err != nil {
 			return count, fmt.Errorf("memory: consolidate-scoped add: %w", err)
 		}
 		count++
@@ -106,7 +104,7 @@ func (s *ScopedLifecycleManager) ForgetScoped(ctx context.Context, kind Kind, op
 	candidates := allItems[kind]
 	var count int
 	switch opts.Strategy {
-	case coremem.ForgetByImportance:
+	case ForgetByImportance:
 		for _, it := range candidates {
 			if IsPinned(it) {
 				continue
@@ -117,7 +115,7 @@ func (s *ScopedLifecycleManager) ForgetScoped(ctx context.Context, kind Kind, op
 				}
 			}
 		}
-	case coremem.ForgetByAge:
+	case ForgetByAge:
 		if opts.MaxAge <= 0 {
 			return 0, fmt.Errorf("memory: forget by age requires MaxAge > 0")
 		}
@@ -132,7 +130,7 @@ func (s *ScopedLifecycleManager) ForgetScoped(ctx context.Context, kind Kind, op
 				}
 			}
 		}
-	case coremem.ForgetByCapacity:
+	case ForgetByCapacity:
 		if opts.Keep <= 0 {
 			return 0, nil
 		}

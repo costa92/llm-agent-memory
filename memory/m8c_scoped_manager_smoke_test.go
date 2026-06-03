@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"testing"
-
-	coremem "github.com/costa92/llm-agent/memory"
 )
 
 func TestM8CScopedManager_LocalScopeStampAndFilter(t *testing.T) {
@@ -26,14 +24,14 @@ func TestM8CScopedManager_LocalScopeStampAndFilter(t *testing.T) {
 	alice := WithScope(context.Background(), Scope{User: "alice"})
 	bob := WithScope(context.Background(), Scope{User: "bob"})
 
-	id, err := sm.Add(alice, coremem.KindWorking, MemoryItem{Content: "alice-memory", Importance: 0.8})
+	id, err := sm.Add(alice, KindWorking, MemoryItem{Content: "alice-memory", Importance: 0.8})
 	if err != nil {
 		t.Fatalf("Add: %v", err)
 	}
-	if _, err := sm.Get(bob, coremem.KindWorking, id); !errors.Is(err, ErrNotFound) {
+	if _, err := sm.Get(bob, KindWorking, id); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("Get from other scope err = %v, want ErrNotFound", err)
 	}
-	got, err := sm.Get(alice, coremem.KindWorking, id)
+	got, err := sm.Get(alice, KindWorking, id)
 	if err != nil {
 		t.Fatalf("Get from same scope: %v", err)
 	}

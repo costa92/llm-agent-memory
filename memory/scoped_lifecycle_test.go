@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"testing"
-
-	coremem "github.com/costa92/llm-agent/memory"
 )
 
 func TestScopedLifecycle_ConsolidateScoped_OnlyPromotesMatchingScope(t *testing.T) {
@@ -15,27 +13,27 @@ func TestScopedLifecycle_ConsolidateScoped_OnlyPromotesMatchingScope(t *testing.
 		t.Fatalf("NewScopedLifecycleManager: %v", err)
 	}
 
-	scopeA := coremem.Scope{User: "alice", Project: "p1"}
-	scopeB := coremem.Scope{User: "bob", Project: "p1"}
+	scopeA := Scope{User: "alice", Project: "p1"}
+	scopeB := Scope{User: "bob", Project: "p1"}
 
 	ctxA := WithScope(context.Background(), scopeA)
 	ctxB := WithScope(context.Background(), scopeB)
 
 	// Alice writes a working item with importance high enough to promote.
-	if _, err := sm.Add(ctxA, coremem.KindWorking, MemoryItem{
+	if _, err := sm.Add(ctxA, KindWorking, MemoryItem{
 		Content: "alice note", Importance: 0.9,
 	}); err != nil {
 		t.Fatalf("alice Add: %v", err)
 	}
 	// Bob writes one too.
-	if _, err := sm.Add(ctxB, coremem.KindWorking, MemoryItem{
+	if _, err := sm.Add(ctxB, KindWorking, MemoryItem{
 		Content: "bob note", Importance: 0.9,
 	}); err != nil {
 		t.Fatalf("bob Add: %v", err)
 	}
 
 	// Alice runs ConsolidateScoped. Only her item should be promoted.
-	n, err := slm.ConsolidateScoped(ctxA, coremem.ConsolidateOptions{Threshold: 0.7})
+	n, err := slm.ConsolidateScoped(ctxA, ConsolidateOptions{Threshold: 0.7})
 	if err != nil {
 		t.Fatalf("ConsolidateScoped: %v", err)
 	}
@@ -45,11 +43,11 @@ func TestScopedLifecycle_ConsolidateScoped_OnlyPromotesMatchingScope(t *testing.
 
 	// Inspect the episodic tier via the inner *Manager: exactly one item,
 	// and it carries Alice's scope.
-	pages, err := sm.Inner().ListAll(context.Background(), coremem.ListFilter{}, 100, nil)
+	pages, err := sm.Inner().ListAll(context.Background(), ListFilter{}, 100, nil)
 	if err != nil {
 		t.Fatalf("inner ListAll: %v", err)
 	}
-	epi := pages[coremem.KindEpisodic].Items
+	epi := pages[KindEpisodic].Items
 	if len(epi) != 1 {
 		t.Fatalf("episodic count = %d, want 1", len(epi))
 	}
@@ -65,21 +63,21 @@ func TestScopedLifecycle_ConsolidateScoped_DoesNotPromoteOtherScope(t *testing.T
 		t.Fatalf("NewScopedLifecycleManager: %v", err)
 	}
 
-	scopeA := coremem.Scope{User: "alice"}
-	scopeB := coremem.Scope{User: "bob"}
+	scopeA := Scope{User: "alice"}
+	scopeB := Scope{User: "bob"}
 
 	ctxA := WithScope(context.Background(), scopeA)
 	ctxB := WithScope(context.Background(), scopeB)
 
-	if _, err := sm.Add(ctxA, coremem.KindWorking, MemoryItem{Content: "a", Importance: 0.9}); err != nil {
+	if _, err := sm.Add(ctxA, KindWorking, MemoryItem{Content: "a", Importance: 0.9}); err != nil {
 		t.Fatalf("alice Add: %v", err)
 	}
-	if _, err := sm.Add(ctxB, coremem.KindWorking, MemoryItem{Content: "b", Importance: 0.9}); err != nil {
+	if _, err := sm.Add(ctxB, KindWorking, MemoryItem{Content: "b", Importance: 0.9}); err != nil {
 		t.Fatalf("bob Add: %v", err)
 	}
 
 	// Bob runs ConsolidateScoped. Alice's item must NOT be promoted.
-	n, err := slm.ConsolidateScoped(ctxB, coremem.ConsolidateOptions{Threshold: 0.7})
+	n, err := slm.ConsolidateScoped(ctxB, ConsolidateOptions{Threshold: 0.7})
 	if err != nil {
 		t.Fatalf("ConsolidateScoped: %v", err)
 	}
@@ -87,8 +85,8 @@ func TestScopedLifecycle_ConsolidateScoped_DoesNotPromoteOtherScope(t *testing.T
 		t.Fatalf("promoted = %d, want 1 (only bob)", n)
 	}
 
-	pages, _ := sm.Inner().ListAll(context.Background(), coremem.ListFilter{}, 100, nil)
-	epi := pages[coremem.KindEpisodic].Items
+	pages, _ := sm.Inner().ListAll(context.Background(), ListFilter{}, 100, nil)
+	epi := pages[KindEpisodic].Items
 	if len(epi) != 1 {
 		t.Fatalf("episodic count = %d, want 1", len(epi))
 	}
@@ -104,23 +102,23 @@ func TestScopedLifecycle_ForgetScoped_OnlyDeletesMatchingScope(t *testing.T) {
 		t.Fatalf("NewScopedLifecycleManager: %v", err)
 	}
 
-	scopeA := coremem.Scope{User: "alice"}
-	scopeB := coremem.Scope{User: "bob"}
+	scopeA := Scope{User: "alice"}
+	scopeB := Scope{User: "bob"}
 
 	ctxA := WithScope(context.Background(), scopeA)
 	ctxB := WithScope(context.Background(), scopeB)
 
 	// Both users add a low-importance episodic item.
-	if _, err := sm.Add(ctxA, coremem.KindEpisodic, MemoryItem{Content: "a", Importance: 0.1}); err != nil {
+	if _, err := sm.Add(ctxA, KindEpisodic, MemoryItem{Content: "a", Importance: 0.1}); err != nil {
 		t.Fatalf("alice Add: %v", err)
 	}
-	if _, err := sm.Add(ctxB, coremem.KindEpisodic, MemoryItem{Content: "b", Importance: 0.1}); err != nil {
+	if _, err := sm.Add(ctxB, KindEpisodic, MemoryItem{Content: "b", Importance: 0.1}); err != nil {
 		t.Fatalf("bob Add: %v", err)
 	}
 
 	// Alice forgets by importance threshold 0.5. Bob's item must survive.
-	n, err := slm.ForgetScoped(ctxA, coremem.KindEpisodic, coremem.ForgetOptions{
-		Strategy:  coremem.ForgetByImportance,
+	n, err := slm.ForgetScoped(ctxA, KindEpisodic, ForgetOptions{
+		Strategy:  ForgetByImportance,
 		Threshold: 0.5,
 	})
 	if err != nil {
@@ -130,8 +128,8 @@ func TestScopedLifecycle_ForgetScoped_OnlyDeletesMatchingScope(t *testing.T) {
 		t.Fatalf("forgotten = %d, want 1", n)
 	}
 
-	pages, _ := sm.Inner().ListAll(context.Background(), coremem.ListFilter{}, 100, nil)
-	epi := pages[coremem.KindEpisodic].Items
+	pages, _ := sm.Inner().ListAll(context.Background(), ListFilter{}, 100, nil)
+	epi := pages[KindEpisodic].Items
 	if len(epi) != 1 {
 		t.Fatalf("survivors = %d, want 1 (bob)", len(epi))
 	}
@@ -147,19 +145,19 @@ func TestScopedLifecycle_StatsScoped_CountsOnlyMatchingScope(t *testing.T) {
 		t.Fatalf("NewScopedLifecycleManager: %v", err)
 	}
 
-	scopeA := coremem.Scope{User: "alice"}
-	scopeB := coremem.Scope{User: "bob"}
+	scopeA := Scope{User: "alice"}
+	scopeB := Scope{User: "bob"}
 
 	ctxA := WithScope(context.Background(), scopeA)
 	ctxB := WithScope(context.Background(), scopeB)
 
-	if _, err := sm.Add(ctxA, coremem.KindWorking, MemoryItem{Content: "a1", Importance: 0.5}); err != nil {
+	if _, err := sm.Add(ctxA, KindWorking, MemoryItem{Content: "a1", Importance: 0.5}); err != nil {
 		t.Fatalf("alice Add 1: %v", err)
 	}
-	if _, err := sm.Add(ctxA, coremem.KindWorking, MemoryItem{Content: "a2", Importance: 0.5}); err != nil {
+	if _, err := sm.Add(ctxA, KindWorking, MemoryItem{Content: "a2", Importance: 0.5}); err != nil {
 		t.Fatalf("alice Add 2: %v", err)
 	}
-	if _, err := sm.Add(ctxB, coremem.KindWorking, MemoryItem{Content: "b1", Importance: 0.5}); err != nil {
+	if _, err := sm.Add(ctxB, KindWorking, MemoryItem{Content: "b1", Importance: 0.5}); err != nil {
 		t.Fatalf("bob Add: %v", err)
 	}
 
@@ -167,7 +165,7 @@ func TestScopedLifecycle_StatsScoped_CountsOnlyMatchingScope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StatsScoped(alice): %v", err)
 	}
-	if got := statsA[coremem.KindWorking].Count; got != 2 {
+	if got := statsA[KindWorking].Count; got != 2 {
 		t.Errorf("alice working Count = %d, want 2", got)
 	}
 
@@ -175,7 +173,7 @@ func TestScopedLifecycle_StatsScoped_CountsOnlyMatchingScope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StatsScoped(bob): %v", err)
 	}
-	if got := statsB[coremem.KindWorking].Count; got != 1 {
+	if got := statsB[KindWorking].Count; got != 1 {
 		t.Errorf("bob working Count = %d, want 1", got)
 	}
 }
@@ -206,10 +204,10 @@ func TestScopedLifecycle_ConsolidateScoped_PagesThroughLargeScope(t *testing.T) 
 		t.Fatalf("NewScopedLifecycleManager: %v", err)
 	}
 
-	ctx := WithScope(context.Background(), coremem.Scope{User: "page-user"})
+	ctx := WithScope(context.Background(), Scope{User: "page-user"})
 	const total = 180
 	for i := 0; i < total; i++ {
-		if _, err := wideSM.Add(ctx, coremem.KindWorking, MemoryItem{
+		if _, err := wideSM.Add(ctx, KindWorking, MemoryItem{
 			Content:    fmt.Sprintf("item-%03d", i),
 			Importance: 0.9,
 		}); err != nil {
@@ -217,7 +215,7 @@ func TestScopedLifecycle_ConsolidateScoped_PagesThroughLargeScope(t *testing.T) 
 		}
 	}
 
-	n, err := slm.ConsolidateScoped(ctx, coremem.ConsolidateOptions{Threshold: 0.7})
+	n, err := slm.ConsolidateScoped(ctx, ConsolidateOptions{Threshold: 0.7})
 	if err != nil {
 		t.Fatalf("ConsolidateScoped: %v", err)
 	}
@@ -246,10 +244,10 @@ func TestScopedLifecycle_ForgetScoped_PagesThroughLargeScope(t *testing.T) {
 		t.Fatalf("NewScopedLifecycleManager: %v", err)
 	}
 
-	ctx := WithScope(context.Background(), coremem.Scope{User: "page-forget"})
+	ctx := WithScope(context.Background(), Scope{User: "page-forget"})
 	const total = 170
 	for i := 0; i < total; i++ {
-		if _, err := wideSM.Add(ctx, coremem.KindEpisodic, MemoryItem{
+		if _, err := wideSM.Add(ctx, KindEpisodic, MemoryItem{
 			Content:    fmt.Sprintf("forgettable-%03d", i),
 			Importance: 0.1,
 		}); err != nil {
@@ -257,8 +255,8 @@ func TestScopedLifecycle_ForgetScoped_PagesThroughLargeScope(t *testing.T) {
 		}
 	}
 
-	n, err := slm.ForgetScoped(ctx, coremem.KindEpisodic, coremem.ForgetOptions{
-		Strategy:  coremem.ForgetByImportance,
+	n, err := slm.ForgetScoped(ctx, KindEpisodic, ForgetOptions{
+		Strategy:  ForgetByImportance,
 		Threshold: 0.5,
 	})
 	if err != nil {
@@ -288,10 +286,10 @@ func TestScopedLifecycle_StatsScoped_CountsAllPages(t *testing.T) {
 		t.Fatalf("NewScopedLifecycleManager: %v", err)
 	}
 
-	ctx := WithScope(context.Background(), coremem.Scope{User: "page-stats"})
+	ctx := WithScope(context.Background(), Scope{User: "page-stats"})
 	const total = 160
 	for i := 0; i < total; i++ {
-		if _, err := wideSM.Add(ctx, coremem.KindWorking, MemoryItem{
+		if _, err := wideSM.Add(ctx, KindWorking, MemoryItem{
 			Content:    fmt.Sprintf("countable-%03d", i),
 			Importance: 0.5,
 		}); err != nil {
@@ -303,7 +301,7 @@ func TestScopedLifecycle_StatsScoped_CountsAllPages(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StatsScoped: %v", err)
 	}
-	if got := stats[coremem.KindWorking].Count; got != total {
+	if got := stats[KindWorking].Count; got != total {
 		t.Errorf("StatsScoped Count = %d, want %d", got, total)
 	}
 }
@@ -331,9 +329,9 @@ func TestScopedLifecycle_StatsScoped_IncludesActiveButEmptyKinds(t *testing.T) {
 		t.Fatalf("NewScopedLifecycleManager: %v", err)
 	}
 
-	ctx := WithScope(context.Background(), coremem.Scope{User: "empty-kinds"})
+	ctx := WithScope(context.Background(), Scope{User: "empty-kinds"})
 	// Add one item only to Working — leave Episodic and Semantic empty.
-	if _, err := wideSM.Add(ctx, coremem.KindWorking, MemoryItem{
+	if _, err := wideSM.Add(ctx, KindWorking, MemoryItem{
 		Content: "solo", Importance: 0.5,
 	}); err != nil {
 		t.Fatalf("Add: %v", err)
@@ -345,18 +343,18 @@ func TestScopedLifecycle_StatsScoped_IncludesActiveButEmptyKinds(t *testing.T) {
 	}
 
 	// All 3 active kinds must appear in the result map.
-	for _, k := range []coremem.Kind{coremem.KindWorking, coremem.KindEpisodic, coremem.KindSemantic} {
+	for _, k := range []Kind{KindWorking, KindEpisodic, KindSemantic} {
 		if _, ok := stats[k]; !ok {
 			t.Errorf("stats[%v] missing — active-but-empty kinds must be reported", k)
 		}
 	}
 	// KindWorking: Count=1, Capacity > 0 (from inner StatsAll)
-	if stats[coremem.KindWorking].Count != 1 {
-		t.Errorf("KindWorking Count = %d, want 1", stats[coremem.KindWorking].Count)
+	if stats[KindWorking].Count != 1 {
+		t.Errorf("KindWorking Count = %d, want 1", stats[KindWorking].Count)
 	}
 	// Empty kinds: Count=0, Capacity > 0 (the regression assertion)
-	if stats[coremem.KindEpisodic].Count != 0 {
-		t.Errorf("KindEpisodic Count = %d, want 0", stats[coremem.KindEpisodic].Count)
+	if stats[KindEpisodic].Count != 0 {
+		t.Errorf("KindEpisodic Count = %d, want 0", stats[KindEpisodic].Count)
 	}
 }
 
@@ -366,11 +364,11 @@ func TestScopedLifecycle_ConsolidateScoped_EmitsConsolidatedTotalEvent(t *testin
 	if err != nil {
 		t.Fatalf("NewScopedLifecycleManager: %v", err)
 	}
-	ctx := WithScope(context.Background(), coremem.Scope{User: "obs-user"})
-	if _, err := slm.sm.Add(ctx, coremem.KindWorking, MemoryItem{Content: "a", Importance: 0.9}); err != nil {
+	ctx := WithScope(context.Background(), Scope{User: "obs-user"})
+	if _, err := slm.sm.Add(ctx, KindWorking, MemoryItem{Content: "a", Importance: 0.9}); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
-	if _, err := slm.ConsolidateScoped(ctx, coremem.ConsolidateOptions{Threshold: 0.7}); err != nil {
+	if _, err := slm.ConsolidateScoped(ctx, ConsolidateOptions{Threshold: 0.7}); err != nil {
 		t.Fatalf("ConsolidateScoped: %v", err)
 	}
 
@@ -396,12 +394,12 @@ func TestScopedLifecycle_ForgetScoped_EmitsForgottenTotalEvent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewScopedLifecycleManager: %v", err)
 	}
-	ctx := WithScope(context.Background(), coremem.Scope{User: "forget-obs"})
-	if _, err := slm.sm.Add(ctx, coremem.KindEpisodic, MemoryItem{Content: "a", Importance: 0.1}); err != nil {
+	ctx := WithScope(context.Background(), Scope{User: "forget-obs"})
+	if _, err := slm.sm.Add(ctx, KindEpisodic, MemoryItem{Content: "a", Importance: 0.1}); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
-	if _, err := slm.ForgetScoped(ctx, coremem.KindEpisodic, coremem.ForgetOptions{
-		Strategy:  coremem.ForgetByImportance,
+	if _, err := slm.ForgetScoped(ctx, KindEpisodic, ForgetOptions{
+		Strategy:  ForgetByImportance,
 		Threshold: 0.5,
 	}); err != nil {
 		t.Fatalf("ForgetScoped: %v", err)
@@ -421,7 +419,7 @@ func TestScopedLifecycle_ForgetScoped_EmitsForgottenTotalEvent(t *testing.T) {
 	if n, _ := found.Attrs["n"].(int); n != 1 {
 		t.Errorf("Attrs[\"n\"] = %v, want 1", found.Attrs["n"])
 	}
-	if k, _ := found.Attrs["kind"].(coremem.Kind); k != coremem.KindEpisodic {
-		t.Errorf("Attrs[\"kind\"] = %v, want %v", found.Attrs["kind"], coremem.KindEpisodic)
+	if k, _ := found.Attrs["kind"].(Kind); k != KindEpisodic {
+		t.Errorf("Attrs[\"kind\"] = %v, want %v", found.Attrs["kind"], KindEpisodic)
 	}
 }

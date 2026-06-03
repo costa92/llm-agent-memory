@@ -6,6 +6,36 @@ documented in this file.
 <!-- Keep a Changelog format: https://keepachangelog.com/en/1.1.0/ -->
 <!-- Semver: https://semver.org/ -->
 
+## [2.0.0] - 2026-06-03
+
+> Breaking: module path is now `github.com/costa92/llm-agent-memory/v2`.
+> Resolves the inverted dependency — the foundational memory module no
+> longer depends UP on the framework `github.com/costa92/llm-agent`.
+
+### Changed
+
+- **Module path → `/v2`** (Go major-version bump). Update imports to
+  `github.com/costa92/llm-agent-memory/v2/memory`.
+- **Dropped the dependency on `github.com/costa92/llm-agent`.** The shared
+  memory contract (interfaces + data types `MemoryItem`/`SearchResult`/
+  `Snapshot`/`Kind`/`Scope`/`Source`/`Category`/options, sentinel errors,
+  and the 8 metadata helpers) now comes from the leaf contract
+  `github.com/costa92/llm-agent-contract/memory` (pinned `v0.1.0`). The
+  local `coremem`-backed type aliases, the `AdaptCore*` adapter family,
+  and the `*FromCore`/`*ToCore` converters are gone; `MemoryItem` is now a
+  direct alias of the contract type (no more duplicate struct).
+
+### Added
+
+- **`(*Manager).Lookup(kind) (Memory, error)`** — exported per-kind memory
+  lookup so `*Manager` satisfies the contract `Manager` interface and the
+  MemoryTool adapter can target the interface instead of the concrete engine.
+
+### Internal
+
+- `Sanitizer`/`SanitizerFunc`/`WithSanitizer` are now defined natively in
+  this module (they are policy behavior, not part of the leaf contract).
+
 ## [1.0.0] - 2026-05-26
 
 > First major release. See `docs/memory-v1-migration.zh-CN.md` in the

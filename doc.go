@@ -1,14 +1,15 @@
 // Package memorykit is the short brand name for the standalone
 // memory extension SDK whose module path is
-// github.com/costa92/llm-agent-memory.
+// github.com/costa92/llm-agent-memory/v2.
 //
 // The root package is a documentation anchor only: it exports no
 // symbols. Callers import the subpackage:
 //
-//	import "github.com/costa92/llm-agent-memory/memory"
+//	import "github.com/costa92/llm-agent-memory/v2/memory"
 //
-// The subpackage adds three additive capabilities on top of
-// github.com/costa92/llm-agent/memory without modifying core:
+// The subpackage provides the native memory engines on top of the leaf
+// contract github.com/costa92/llm-agent-contract/memory, plus three
+// additive capabilities:
 //
 //   - ScopedLifecycleManager — scope-honoring ConsolidateScoped /
 //     ForgetScoped / StatsScoped (closes the v0.7 gap noted on
