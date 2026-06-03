@@ -5,8 +5,6 @@ import (
 	"errors"
 	"math"
 	"testing"
-
-	coremem "github.com/costa92/llm-agent/memory"
 )
 
 // TestRecallEngine_PublicShape_Compiles pins the v1.0.0 surface of the
@@ -22,14 +20,14 @@ func TestRecallEngine_PublicShape_Compiles(t *testing.T) {
 	_ = RecallOptions{
 		TopK:              10,
 		Tiers:             AllTiers,
-		Budgets:           map[coremem.Kind]int{coremem.KindWorking: 2},
+		Budgets:           map[Kind]int{KindWorking: 2},
 		IncludeProvenance: true,
 	}
 
 	// UnifiedRecall documented fields.
 	_ = UnifiedRecall{
 		Results:      []SearchResult{},
-		PerTier:      map[coremem.Kind]TierStats{coremem.KindWorking: {Considered: 0, Returned: 0}},
+		PerTier:      map[Kind]TierStats{KindWorking: {Considered: 0, Returned: 0}},
 		TotalDropped: 0,
 	}
 
@@ -66,12 +64,12 @@ func TestRecallEngine_Recall_ParityWithUnifiedSearcher(t *testing.T) {
 	type adder interface {
 		Add(context.Context, MemoryItem) (string, error)
 	}
-	for _, kind := range []coremem.Kind{coremem.KindWorking, coremem.KindEpisodic, coremem.KindSemantic} {
-		mem := func(k coremem.Kind) adder {
+	for _, kind := range []Kind{KindWorking, KindEpisodic, KindSemantic} {
+		mem := func(k Kind) adder {
 			switch k {
-			case coremem.KindWorking:
+			case KindWorking:
 				return w
-			case coremem.KindEpisodic:
+			case KindEpisodic:
 				return e
 			default:
 				return s
@@ -153,10 +151,10 @@ func TestRecallEngine_Recall_TierMask_Working_OmitsOtherTiers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Recall: %v", err)
 	}
-	if _, ok := got.PerTier[coremem.KindEpisodic]; ok {
+	if _, ok := got.PerTier[KindEpisodic]; ok {
 		t.Errorf("PerTier should omit KindEpisodic when Tiers=TierWorking: %+v", got.PerTier)
 	}
-	if _, ok := got.PerTier[coremem.KindSemantic]; ok {
+	if _, ok := got.PerTier[KindSemantic]; ok {
 		t.Errorf("PerTier should omit KindSemantic when Tiers=TierWorking: %+v", got.PerTier)
 	}
 	for _, r := range got.Results {
@@ -179,14 +177,14 @@ func TestRecallEngine_Recall_PerTierBudget_CapsCandidates(t *testing.T) {
 	got, err := eng.Recall(ctx, "bursty", RecallOptions{
 		TopK:              10,
 		Tiers:             TierWorking,
-		Budgets:           map[coremem.Kind]int{coremem.KindWorking: 2},
+		Budgets:           map[Kind]int{KindWorking: 2},
 		IncludeProvenance: true,
 	})
 	if err != nil {
 		t.Fatalf("Recall: %v", err)
 	}
-	if got.PerTier[coremem.KindWorking].Considered > 2 {
-		t.Errorf("PerTier.Considered = %d, want <= 2 (budget cap)", got.PerTier[coremem.KindWorking].Considered)
+	if got.PerTier[KindWorking].Considered > 2 {
+		t.Errorf("PerTier.Considered = %d, want <= 2 (budget cap)", got.PerTier[KindWorking].Considered)
 	}
 }
 
@@ -196,17 +194,17 @@ func TestRecallEngine_Recall_PerTierBudget_CapsCandidates(t *testing.T) {
 // recall-able via RecallEngine.Recall (D-2). The two breaks compose.
 func TestRecallEngine_OverWithSanitizerWrappedManager_NoCast(t *testing.T) {
 	ctx := context.Background()
-	w := coreWorkingForAdapter(t)
-	tagger := coremem.SanitizerFunc(func(_ context.Context, _ coremem.Kind, it coremem.MemoryItem) (coremem.MemoryItem, bool, error) {
+	w := newWorking(t)
+	tagger := SanitizerFunc(func(_ context.Context, _ Kind, it MemoryItem) (MemoryItem, bool, error) {
 		it.Tags = append(it.Tags, "via-sanitizer")
 		return it, true, nil
 	})
-	wrapped := coremem.WithSanitizer(w, tagger)
-	mgr, err := NewManager(Options{Working: TierOptions{Memory: AdaptCoreMemory(wrapped), Lister: AdaptCoreLister(w)}})
+	wrapped := WithSanitizer(w, tagger)
+	mgr, err := NewManager(Options{Working: TierOptions{Memory: wrapped, Lister: w}})
 	if err != nil {
 		t.Fatalf("NewManager(wrapped): %v", err)
 	}
-	if _, err := mgr.Add(ctx, coremem.KindWorking, MemoryItem{Content: "alpha"}); err != nil {
+	if _, err := mgr.Add(ctx, KindWorking, MemoryItem{Content: "alpha"}); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
 	eng, err := NewRecallEngine(mgr)

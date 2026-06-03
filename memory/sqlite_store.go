@@ -20,8 +20,6 @@ import (
 	"strings"
 	"time"
 
-	coremem "github.com/costa92/llm-agent/memory"
-
 	_ "modernc.org/sqlite" // registers the "sqlite" driver
 )
 
@@ -195,10 +193,9 @@ func isNoSchemaTable(err error) bool {
 }
 
 // sanitizeSQLiteKey replaces every character outside [a-zA-Z0-9_-]
-// with '_'. Empty input becomes "_". Keep in sync with the
-// sanitizer in github.com/costa92/llm-agent/memory/persistence.go
-// (persistence.go:206-219) so a caller key normalizes identically
-// across SnapshotStore impls.
+// with '_'. Empty input becomes "_". Mirrors the FilesystemStore key
+// sanitizer so a caller key normalizes identically across
+// SnapshotStore impls.
 func sanitizeSQLiteKey(s string) string {
 	var b strings.Builder
 	for _, r := range s {
@@ -240,7 +237,7 @@ func (s *SQLiteStore) Save(ctx context.Context, key string, snap Snapshot) error
 // os.ErrNotExist when no row exists for any kind. Mirrors
 // (*FilesystemStore).Load semantics from persistence.go:254-265.
 func (s *SQLiteStore) Load(ctx context.Context, key string) (Snapshot, error) {
-	for _, kind := range []coremem.Kind{coremem.KindWorking, coremem.KindEpisodic, coremem.KindSemantic} {
+	for _, kind := range []Kind{KindWorking, KindEpisodic, KindSemantic} {
 		snap, err := s.LoadKind(ctx, key, kind)
 		if err == nil {
 			return snap, nil

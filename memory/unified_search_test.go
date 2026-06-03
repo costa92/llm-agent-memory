@@ -3,8 +3,6 @@ package memory
 import (
 	"context"
 	"testing"
-
-	coremem "github.com/costa92/llm-agent/memory"
 )
 
 func TestUnifiedSearcher_FansOutToAllTiers(t *testing.T) {
@@ -22,13 +20,13 @@ func TestUnifiedSearcher_FansOutToAllTiers(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	if _, err := mgr.Add(ctx, coremem.KindWorking, MemoryItem{Content: "go modules", Importance: 0.5}); err != nil {
+	if _, err := mgr.Add(ctx, KindWorking, MemoryItem{Content: "go modules", Importance: 0.5}); err != nil {
 		t.Fatalf("working Add: %v", err)
 	}
-	if _, err := mgr.Add(ctx, coremem.KindEpisodic, MemoryItem{Content: "go modules history", Importance: 0.5}); err != nil {
+	if _, err := mgr.Add(ctx, KindEpisodic, MemoryItem{Content: "go modules history", Importance: 0.5}); err != nil {
 		t.Fatalf("episodic Add: %v", err)
 	}
-	if _, err := mgr.Add(ctx, coremem.KindSemantic, MemoryItem{Content: "go modules guide", Tags: []string{"go"}, Importance: 0.5}); err != nil {
+	if _, err := mgr.Add(ctx, KindSemantic, MemoryItem{Content: "go modules guide", Tags: []string{"go"}, Importance: 0.5}); err != nil {
 		t.Fatalf("semantic Add: %v", err)
 	}
 
@@ -82,10 +80,10 @@ func TestUnifiedSearcher_DedupesByIDAndContent(t *testing.T) {
 	// collapse to a single result.
 	const sharedID = "fixed-id-001"
 	const sharedContent = "duplicated note"
-	if _, err := mgr.Add(ctx, coremem.KindWorking, MemoryItem{ID: sharedID, Content: sharedContent, Importance: 0.5}); err != nil {
+	if _, err := mgr.Add(ctx, KindWorking, MemoryItem{ID: sharedID, Content: sharedContent, Importance: 0.5}); err != nil {
 		t.Fatalf("working Add: %v", err)
 	}
-	if _, err := mgr.Add(ctx, coremem.KindEpisodic, MemoryItem{ID: sharedID, Content: sharedContent, Importance: 0.5}); err != nil {
+	if _, err := mgr.Add(ctx, KindEpisodic, MemoryItem{ID: sharedID, Content: sharedContent, Importance: 0.5}); err != nil {
 		t.Fatalf("episodic Add: %v", err)
 	}
 
@@ -123,13 +121,13 @@ func TestUnifiedSearcher_SortsByScoreDescending(t *testing.T) {
 	// Two clearly-distinguishable contents so any tier produces a
 	// score difference. We don't assert exact scores — just that the
 	// returned slice is monotonically non-increasing in Score.
-	if _, err := mgr.Add(ctx, coremem.KindWorking, MemoryItem{Content: "go modules", Importance: 0.5}); err != nil {
+	if _, err := mgr.Add(ctx, KindWorking, MemoryItem{Content: "go modules", Importance: 0.5}); err != nil {
 		t.Fatalf("Add 1: %v", err)
 	}
-	if _, err := mgr.Add(ctx, coremem.KindEpisodic, MemoryItem{Content: "unrelated cooking recipe", Importance: 0.5}); err != nil {
+	if _, err := mgr.Add(ctx, KindEpisodic, MemoryItem{Content: "unrelated cooking recipe", Importance: 0.5}); err != nil {
 		t.Fatalf("Add 2: %v", err)
 	}
-	if _, err := mgr.Add(ctx, coremem.KindSemantic, MemoryItem{Content: "go modules guide", Tags: []string{"go"}, Importance: 0.5}); err != nil {
+	if _, err := mgr.Add(ctx, KindSemantic, MemoryItem{Content: "go modules guide", Tags: []string{"go"}, Importance: 0.5}); err != nil {
 		t.Fatalf("Add 3: %v", err)
 	}
 
@@ -161,14 +159,14 @@ func TestUnifiedSearcher_HonorsTopK(t *testing.T) {
 	ctx := context.Background()
 	// Seed 5 distinct items across tiers, all matching the query.
 	contents := []struct {
-		kind    coremem.Kind
+		kind    Kind
 		content string
 	}{
-		{coremem.KindWorking, "go alpha"},
-		{coremem.KindWorking, "go bravo"},
-		{coremem.KindEpisodic, "go charlie"},
-		{coremem.KindEpisodic, "go delta"},
-		{coremem.KindSemantic, "go echo"},
+		{KindWorking, "go alpha"},
+		{KindWorking, "go bravo"},
+		{KindEpisodic, "go charlie"},
+		{KindEpisodic, "go delta"},
+		{KindSemantic, "go echo"},
 	}
 	for _, c := range contents {
 		if _, err := mgr.Add(ctx, c.kind, MemoryItem{Content: c.content, Importance: 0.5}); err != nil {
@@ -200,7 +198,7 @@ func TestUnifiedSearcher_DoesNotAlterCoreSearchAll(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	if _, err := mgr.Add(ctx, coremem.KindEpisodic, MemoryItem{Content: "alpha", Importance: 0.5}); err != nil {
+	if _, err := mgr.Add(ctx, KindEpisodic, MemoryItem{Content: "alpha", Importance: 0.5}); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
 
@@ -213,7 +211,7 @@ func TestUnifiedSearcher_DoesNotAlterCoreSearchAll(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SearchAll: %v", err)
 	}
-	if len(out[coremem.KindEpisodic]) == 0 {
+	if len(out[KindEpisodic]) == 0 {
 		t.Errorf("SearchAll lost the episodic result post-SearchUnified")
 	}
 }
@@ -233,7 +231,7 @@ func TestUnifiedSearcher_SearchUnified_EmitsSearchTotalAndHits(t *testing.T) {
 		t.Fatalf("NewUnifiedSearcher: %v", err)
 	}
 	ctx := context.Background()
-	if _, err := mgr.Add(ctx, coremem.KindEpisodic, MemoryItem{Content: "go modules guide", Importance: 0.5}); err != nil {
+	if _, err := mgr.Add(ctx, KindEpisodic, MemoryItem{Content: "go modules guide", Importance: 0.5}); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
 

@@ -1,9 +1,9 @@
-module github.com/costa92/llm-agent-memory
+module github.com/costa92/llm-agent-memory/v2
 
 go 1.26.0
 
 require (
-	github.com/costa92/llm-agent v0.7.0
+	github.com/costa92/llm-agent-contract v0.1.0
 	modernc.org/sqlite v1.50.1
 )
 

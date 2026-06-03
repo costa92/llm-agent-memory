@@ -17,8 +17,6 @@ import (
 	"fmt"
 	"sort"
 	"sync"
-
-	coremem "github.com/costa92/llm-agent/memory"
 )
 
 // TierMask selects which tiers participate in a Recall. The zero value
@@ -159,7 +157,7 @@ func (r *RecallEngine) Recall(ctx context.Context, query string, opts RecallOpti
 
 	perKind := make(map[Kind][]SearchResult, len(participating))
 	for got := range ch {
-		if errors.Is(got.err, coremem.ErrKindDisabled) || errors.Is(got.err, ErrTierDisabled) {
+		if errors.Is(got.err, ErrKindDisabled) || errors.Is(got.err, ErrTierDisabled) {
 			continue
 		}
 		if got.err != nil {

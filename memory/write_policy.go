@@ -21,8 +21,6 @@ package memory
 import (
 	"context"
 	"errors"
-
-	coremem "github.com/costa92/llm-agent/memory"
 )
 
 // WriteSource tags the origin of a ProposedWrite. Policies use it to
@@ -98,14 +96,6 @@ type PolicyFunc func(ctx context.Context, in ProposedWrite) WritePolicyDecision
 func (f PolicyFunc) Decide(ctx context.Context, in ProposedWrite) WritePolicyDecision {
 	return f(ctx, in)
 }
-
-// ErrRejectedByPolicy is returned by PolicyEnforcingMemory.Add when
-// the configured WritePolicy returns VerdictReject. It aliases the
-// identically-named core sentinel so consumers can errors.Is(err,
-// memory.ErrRejectedByPolicy) without dual-importing the core
-// package. The alias is intentional: there is exactly one rejection
-// condition across the stack.
-var ErrRejectedByPolicy = coremem.ErrRejectedByPolicy
 
 // ErrPolicyKindRerouteUnsupported is returned by PolicyAdapter.Sanitize
 // when the wrapped policy returns a Decision.Kind that differs from
@@ -194,9 +184,9 @@ func (p *PolicyEnforcingMemory) Add(ctx context.Context, in ProposedWrite) (stri
 	}
 }
 
-// PolicyAdapter exposes a WritePolicy as a coremem.Sanitizer so
-// callers wired to the existing WithSanitizer chain (see core
-// policy_hook.go) get policy semantics for free. The adapter cannot
+// PolicyAdapter exposes a WritePolicy as a Sanitizer so callers wired
+// to the WithSanitizer chain (see policy_hook.go) get policy semantics
+// for free. The adapter cannot
 // reroute kinds — Sanitizer's return triple has no kind slot. When
 // the wrapped policy returns a Decision.Kind that differs from the
 // input kind, Sanitize returns ErrPolicyKindRerouteUnsupported.
@@ -209,28 +199,28 @@ type PolicyAdapter struct {
 	Policy WritePolicy
 }
 
-// Sanitize satisfies coremem.Sanitizer. See PolicyAdapter godoc for
-// the reroute limitation.
-func (a PolicyAdapter) Sanitize(ctx context.Context, kind coremem.Kind, item coremem.MemoryItem) (coremem.MemoryItem, bool, error) {
+// Sanitize satisfies the Sanitizer interface. See PolicyAdapter godoc
+// for the reroute limitation.
+func (a PolicyAdapter) Sanitize(ctx context.Context, kind Kind, item MemoryItem) (MemoryItem, bool, error) {
 	decision := a.Policy.Decide(ctx, ProposedWrite{
 		Kind:   kind,
-		Item:   memoryItemFromCore(item),
+		Item:   item,
 		Source: WriteSourceSystem,
 	})
 	switch decision.Verdict {
 	case VerdictAccept, VerdictRedact:
 		if decision.Kind != kind {
-			return coremem.MemoryItem{}, false, ErrPolicyKindRerouteUnsupported
+			return MemoryItem{}, false, ErrPolicyKindRerouteUnsupported
 		}
-		return memoryItemToCore(decision.Item), true, nil
+		return decision.Item, true, nil
 	case VerdictReject:
-		return coremem.MemoryItem{}, false, nil
+		return MemoryItem{}, false, nil
 	default:
-		return coremem.MemoryItem{}, false, errors.New("memory: write policy returned unknown verdict")
+		return MemoryItem{}, false, errors.New("memory: write policy returned unknown verdict")
 	}
 }
 
-// Compile-time check that PolicyAdapter satisfies the core Sanitizer
-// contract. If coremem renames or restructures Sanitizer, this line
-// will fail to compile — a deliberate early-warning signal.
-var _ coremem.Sanitizer = PolicyAdapter{}
+// Compile-time check that PolicyAdapter satisfies the Sanitizer
+// contract. If Sanitizer is renamed or restructured, this line will
+// fail to compile — a deliberate early-warning signal.
+var _ Sanitizer = PolicyAdapter{}

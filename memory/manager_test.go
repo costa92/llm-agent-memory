@@ -9,8 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-
-	coremem "github.com/costa92/llm-agent/memory"
 )
 
 // TestManager_TierOptions_FieldsAreCapabilityInterfaces is a
@@ -41,12 +39,13 @@ func TestManager_TierOptions_FieldsAreCapabilityInterfaces(t *testing.T) {
 		_ LifecycleMemory = (TierOptions{}).Lifecycle
 	)
 
-	// Core interfaces remain installable through the adapter layer.
+	// A WithSanitizer-wrapped native engine still satisfies the Memory
+	// capability interface and installs directly (no adapter layer).
 	var (
-		_ Memory = AdaptCoreMemory(coremem.WithSanitizer(coreWorkingForAdapter(t), coremem.SanitizerFunc(func(_ context.Context, _ coremem.Kind, it coremem.MemoryItem) (coremem.MemoryItem, bool, error) {
+		_ Memory = WithSanitizer(newWorking(t), SanitizerFunc(func(_ context.Context, _ Kind, it MemoryItem) (MemoryItem, bool, error) {
 			return it, true, nil
-		})))
-		_ Lister = AdaptCoreLister(coreWorkingForAdapter(t))
+		}))
+		_ Lister = newWorking(t)
 	)
 
 	// Options carries three TierOptions plus a SnapshotStore.
@@ -114,15 +113,15 @@ func TestMemoryPackage_DoesNotExposeCompatPackageOrCoreManagerBridge(t *testing.
 type stubLifecycleMemory struct {
 	consolidateCount int
 	forgetCount      int
-	lastKind         coremem.Kind
+	lastKind         Kind
 }
 
-func (s *stubLifecycleMemory) Consolidate(_ context.Context, _ coremem.ConsolidateOptions) (int, error) {
+func (s *stubLifecycleMemory) Consolidate(_ context.Context, _ ConsolidateOptions) (int, error) {
 	s.consolidateCount++
 	return 2, nil
 }
 
-func (s *stubLifecycleMemory) Forget(_ context.Context, kind coremem.Kind, _ coremem.ForgetOptions) (int, error) {
+func (s *stubLifecycleMemory) Forget(_ context.Context, kind Kind, _ ForgetOptions) (int, error) {
 	s.forgetCount++
 	s.lastKind = kind
 	return 1, nil
@@ -145,10 +144,10 @@ func TestManager_HasKind_ReportsActiveTiers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewManager: %v", err)
 	}
-	if !mgr.HasKind(coremem.KindWorking) {
+	if !mgr.HasKind(KindWorking) {
 		t.Error("HasKind(Working) = false, want true")
 	}
-	if mgr.HasKind(coremem.KindEpisodic) {
+	if mgr.HasKind(KindEpisodic) {
 		t.Error("HasKind(Episodic) = true, want false")
 	}
 }
@@ -159,7 +158,7 @@ func TestManager_Add_DispatchesToWiredTier(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewManager: %v", err)
 	}
-	id, err := mgr.Add(context.Background(), coremem.KindWorking, MemoryItem{Content: "hello"})
+	id, err := mgr.Add(context.Background(), KindWorking, MemoryItem{Content: "hello"})
 	if err != nil {
 		t.Fatalf("Add: %v", err)
 	}
@@ -178,12 +177,12 @@ func TestManager_Add_DispatchesToWiredTier(t *testing.T) {
 func TestManager_Add_DisabledKind_ReturnsErrTierDisabled(t *testing.T) {
 	w := newWorking(t)
 	mgr, _ := NewManager(Options{Working: TierOptions{Memory: w}})
-	_, err := mgr.Add(context.Background(), coremem.KindEpisodic, MemoryItem{Content: "x"})
+	_, err := mgr.Add(context.Background(), KindEpisodic, MemoryItem{Content: "x"})
 	if !errors.Is(err, ErrTierDisabled) {
 		t.Errorf("Add to disabled kind err = %v, want errors.Is ErrTierDisabled", err)
 	}
-	if !errors.Is(err, coremem.ErrKindDisabled) {
-		t.Errorf("Add to disabled kind err = %v, want errors.Is coremem.ErrKindDisabled (compat)", err)
+	if !errors.Is(err, ErrKindDisabled) {
+		t.Errorf("Add to disabled kind err = %v, want errors.Is ErrKindDisabled (compat)", err)
 	}
 }
 
@@ -192,25 +191,25 @@ func TestManager_GetUpdateRemove_RoundTrip(t *testing.T) {
 	w := newWorking(t)
 	mgr, _ := NewManager(Options{Working: TierOptions{Memory: w}})
 
-	id, err := mgr.Add(ctx, coremem.KindWorking, MemoryItem{Content: "rt"})
+	id, err := mgr.Add(ctx, KindWorking, MemoryItem{Content: "rt"})
 	if err != nil {
 		t.Fatalf("Add: %v", err)
 	}
-	got, err := mgr.Get(ctx, coremem.KindWorking, id)
+	got, err := mgr.Get(ctx, KindWorking, id)
 	if err != nil || got.Content != "rt" {
 		t.Fatalf("Get: got=%+v err=%v", got, err)
 	}
-	if err := mgr.Update(ctx, coremem.KindWorking, id, func(it *MemoryItem) { it.Content = "rt2" }); err != nil {
+	if err := mgr.Update(ctx, KindWorking, id, func(it *MemoryItem) { it.Content = "rt2" }); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
-	got2, _ := mgr.Get(ctx, coremem.KindWorking, id)
+	got2, _ := mgr.Get(ctx, KindWorking, id)
 	if got2.Content != "rt2" {
 		t.Errorf("after Update, Content = %q, want %q", got2.Content, "rt2")
 	}
-	if err := mgr.Remove(ctx, coremem.KindWorking, id); err != nil {
+	if err := mgr.Remove(ctx, KindWorking, id); err != nil {
 		t.Fatalf("Remove: %v", err)
 	}
-	if _, err := mgr.Get(ctx, coremem.KindWorking, id); !errors.Is(err, coremem.ErrNotFound) {
+	if _, err := mgr.Get(ctx, KindWorking, id); !errors.Is(err, ErrNotFound) {
 		t.Errorf("Get after Remove err = %v, want errors.Is ErrNotFound", err)
 	}
 }
@@ -223,10 +222,10 @@ func TestManager_Search_DispatchesToCorrectTier(t *testing.T) {
 		Episodic: TierOptions{Memory: e},
 		Semantic: TierOptions{Memory: s},
 	})
-	if _, err := mgr.Add(ctx, coremem.KindEpisodic, MemoryItem{Content: "episodic-fact"}); err != nil {
+	if _, err := mgr.Add(ctx, KindEpisodic, MemoryItem{Content: "episodic-fact"}); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
-	res, err := mgr.Search(ctx, coremem.KindEpisodic, "episodic-fact", 5)
+	res, err := mgr.Search(ctx, KindEpisodic, "episodic-fact", 5)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -242,10 +241,10 @@ func TestManager_Stats_OnlyActiveTiers(t *testing.T) {
 	w := newWorking(t)
 	mgr, _ := NewManager(Options{Working: TierOptions{Memory: w}})
 	stats := mgr.StatsAll()
-	if _, ok := stats[coremem.KindWorking]; !ok {
+	if _, ok := stats[KindWorking]; !ok {
 		t.Errorf("stats missing KindWorking entry: %+v", stats)
 	}
-	if _, ok := stats[coremem.KindEpisodic]; ok {
+	if _, ok := stats[KindEpisodic]; ok {
 		t.Errorf("stats has KindEpisodic but tier was not wired: %+v", stats)
 	}
 }
@@ -257,23 +256,23 @@ func TestManager_SearchAll_FansAcrossActiveTiers(t *testing.T) {
 		Working:  TierOptions{Memory: w},
 		Episodic: TierOptions{Memory: e},
 	})
-	if _, err := mgr.Add(ctx, coremem.KindWorking, MemoryItem{Content: "wfact"}); err != nil {
+	if _, err := mgr.Add(ctx, KindWorking, MemoryItem{Content: "wfact"}); err != nil {
 		t.Fatalf("Add working: %v", err)
 	}
-	if _, err := mgr.Add(ctx, coremem.KindEpisodic, MemoryItem{Content: "efact"}); err != nil {
+	if _, err := mgr.Add(ctx, KindEpisodic, MemoryItem{Content: "efact"}); err != nil {
 		t.Fatalf("Add episodic: %v", err)
 	}
 	got, err := mgr.SearchAll(ctx, "fact", 5)
 	if err != nil {
 		t.Fatalf("SearchAll: %v", err)
 	}
-	if _, ok := got[coremem.KindWorking]; !ok {
+	if _, ok := got[KindWorking]; !ok {
 		t.Errorf("SearchAll missing KindWorking entry: %+v", got)
 	}
-	if _, ok := got[coremem.KindEpisodic]; !ok {
+	if _, ok := got[KindEpisodic]; !ok {
 		t.Errorf("SearchAll missing KindEpisodic entry: %+v", got)
 	}
-	if _, ok := got[coremem.KindSemantic]; ok {
+	if _, ok := got[KindSemantic]; ok {
 		t.Errorf("SearchAll includes KindSemantic but tier was not wired: %+v", got)
 	}
 }
@@ -282,14 +281,14 @@ func TestManager_ListAll_PrefersTierLister_FallsBackToMemoryAssertion(t *testing
 	ctx := context.Background()
 	w := newWorking(t)
 	mgr, _ := NewManager(Options{Working: TierOptions{Memory: w}})
-	if _, err := mgr.Add(ctx, coremem.KindWorking, MemoryItem{Content: "list-me"}); err != nil {
+	if _, err := mgr.Add(ctx, KindWorking, MemoryItem{Content: "list-me"}); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
-	pages, err := mgr.ListAll(ctx, coremem.ListFilter{}, 10, nil)
+	pages, err := mgr.ListAll(ctx, ListFilter{}, 10, nil)
 	if err != nil {
 		t.Fatalf("ListAll: %v", err)
 	}
-	p := pages[coremem.KindWorking]
+	p := pages[KindWorking]
 	if len(p.Items) != 1 || p.Items[0].Content != "list-me" {
 		t.Errorf("ListAll Working page = %+v, want one item with Content=list-me", p)
 	}
@@ -302,7 +301,7 @@ func TestManager_Consolidate_NoLifecycle_ReturnsCapabilityMissing(t *testing.T) 
 		Working:  TierOptions{Memory: w},
 		Episodic: TierOptions{Memory: e},
 	})
-	_, err := mgr.Consolidate(context.Background(), coremem.ConsolidateOptions{})
+	_, err := mgr.Consolidate(context.Background(), ConsolidateOptions{})
 	if !errors.Is(err, ErrCapabilityMissing) {
 		t.Errorf("Consolidate err = %v, want errors.Is ErrCapabilityMissing", err)
 	}
@@ -316,7 +315,7 @@ func TestManager_Consolidate_UsesLifecycleCapability(t *testing.T) {
 		Working:  TierOptions{Memory: w, Lifecycle: lifecycle},
 		Episodic: TierOptions{Memory: e},
 	})
-	n, err := mgr.Consolidate(context.Background(), coremem.ConsolidateOptions{Threshold: 0.7})
+	n, err := mgr.Consolidate(context.Background(), ConsolidateOptions{Threshold: 0.7})
 	if err != nil {
 		t.Fatalf("Consolidate: %v", err)
 	}
@@ -335,23 +334,23 @@ func TestManager_ExportAll_FansAcrossTiersThatExpose(t *testing.T) {
 		Working:  TierOptions{Memory: w, Exporter: w},
 		Episodic: TierOptions{Memory: e, Exporter: e},
 	})
-	if _, err := mgr.Add(ctx, coremem.KindWorking, MemoryItem{Content: "w"}); err != nil {
+	if _, err := mgr.Add(ctx, KindWorking, MemoryItem{Content: "w"}); err != nil {
 		t.Fatalf("Add working: %v", err)
 	}
-	if _, err := mgr.Add(ctx, coremem.KindEpisodic, MemoryItem{Content: "e"}); err != nil {
+	if _, err := mgr.Add(ctx, KindEpisodic, MemoryItem{Content: "e"}); err != nil {
 		t.Fatalf("Add episodic: %v", err)
 	}
 	snaps, err := mgr.ExportAll(ctx, "")
 	if err != nil {
 		t.Fatalf("ExportAll: %v", err)
 	}
-	if _, ok := snaps[coremem.KindWorking]; !ok {
+	if _, ok := snaps[KindWorking]; !ok {
 		t.Errorf("ExportAll missing KindWorking: %+v", snaps)
 	}
-	if _, ok := snaps[coremem.KindEpisodic]; !ok {
+	if _, ok := snaps[KindEpisodic]; !ok {
 		t.Errorf("ExportAll missing KindEpisodic: %+v", snaps)
 	}
-	if got := len(snaps[coremem.KindWorking].Items); got != 1 {
+	if got := len(snaps[KindWorking].Items); got != 1 {
 		t.Errorf("Working snapshot Items len = %d, want 1", got)
 	}
 }
@@ -360,14 +359,14 @@ func TestManager_ExportAll_FallsBackToMemoryAssertionForExporter(t *testing.T) {
 	ctx := context.Background()
 	w := newWorking(t)
 	mgr, _ := NewManager(Options{Working: TierOptions{Memory: w}})
-	if _, err := mgr.Add(ctx, coremem.KindWorking, MemoryItem{Content: "x"}); err != nil {
+	if _, err := mgr.Add(ctx, KindWorking, MemoryItem{Content: "x"}); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
 	snaps, err := mgr.ExportAll(ctx, "")
 	if err != nil {
 		t.Fatalf("ExportAll: %v", err)
 	}
-	if _, ok := snaps[coremem.KindWorking]; !ok {
+	if _, ok := snaps[KindWorking]; !ok {
 		t.Errorf("ExportAll missing KindWorking via Memory-as-Exporter assertion: %+v", snaps)
 	}
 }
@@ -376,8 +375,8 @@ func TestManager_ExportAll_PersistKeyWithoutStore_ReturnsErrSnapshotStoreNotConf
 	w := newWorking(t)
 	mgr, _ := NewManager(Options{Working: TierOptions{Memory: w}})
 	_, err := mgr.ExportAll(context.Background(), "any-key")
-	if !errors.Is(err, coremem.ErrSnapshotStoreNotConfigured) {
-		t.Errorf("err = %v, want errors.Is coremem.ErrSnapshotStoreNotConfigured", err)
+	if !errors.Is(err, ErrSnapshotStoreNotConfigured) {
+		t.Errorf("err = %v, want errors.Is ErrSnapshotStoreNotConfigured", err)
 	}
 }
 
@@ -398,8 +397,8 @@ func TestManager_ImportAll_InlineSnapsRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ImportAll: %v", err)
 	}
-	if reports[coremem.KindWorking].Loaded != 1 {
-		t.Errorf("Loaded = %d, want 1", reports[coremem.KindWorking].Loaded)
+	if reports[KindWorking].Loaded != 1 {
+		t.Errorf("Loaded = %d, want 1", reports[KindWorking].Loaded)
 	}
 }
 
@@ -415,33 +414,32 @@ func TestManager_ImportAll_InlineSnapsRoundTrip(t *testing.T) {
 // broken.
 func TestManager_WithSanitizerWrappedMemory_InstallsWithoutCast(t *testing.T) {
 	ctx := context.Background()
-	w := coreWorkingForAdapter(t)
+	w := newWorking(t)
 
 	// Build a sanitizer chain that uppercases content. This proves the
 	// chain runs (and therefore that the wrapped Memory is the one
-	// Manager.Add invokes — NOT the underlying *coremem.WorkingMemory).
-	uppercase := coremem.SanitizerFunc(func(_ context.Context, _ coremem.Kind, it coremem.MemoryItem) (coremem.MemoryItem, bool, error) {
+	// Manager.Add invokes — NOT the underlying *WorkingMemory).
+	uppercase := SanitizerFunc(func(_ context.Context, _ Kind, it MemoryItem) (MemoryItem, bool, error) {
 		it.Content = "UPPER:" + it.Content
 		return it, true, nil
 	})
 
-	// THE no-cast install. coremem.WithSanitizer returns coremem.Memory;
-	// in the old world this would NOT have compiled — TierOptions.Memory
-	// is accepted through AdaptCoreMemory, which preserves the M4 D-1
-	// compatibility promise after sibling-owned MemoryItem diverged.
-	wrapped := coremem.WithSanitizer(w, uppercase)
+	// THE no-cast install. WithSanitizer returns the Memory interface;
+	// TierOptions.Memory accepts it directly because the field is typed
+	// as the capability interface, not a concrete engine pointer.
+	wrapped := WithSanitizer(w, uppercase)
 	mgr, err := NewManager(Options{
-		Working: TierOptions{Memory: AdaptCoreMemory(wrapped), Lister: AdaptCoreLister(w)},
+		Working: TierOptions{Memory: wrapped, Lister: w},
 	})
 	if err != nil {
 		t.Fatalf("NewManager with wrapped memory: %v", err)
 	}
 
-	id, err := mgr.Add(ctx, coremem.KindWorking, MemoryItem{Content: "hello"})
+	id, err := mgr.Add(ctx, KindWorking, MemoryItem{Content: "hello"})
 	if err != nil {
 		t.Fatalf("Add: %v", err)
 	}
-	got, err := mgr.Get(ctx, coremem.KindWorking, id)
+	got, err := mgr.Get(ctx, KindWorking, id)
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
@@ -468,16 +466,16 @@ func TestManager_ParityWithCoreManager_MethodMatrix(t *testing.T) {
 		t.Fatalf("NewManager: %v", err)
 	}
 
-	if _, err := mgr.Add(ctx, coremem.KindWorking, MemoryItem{Content: "p"}); err != nil {
+	if _, err := mgr.Add(ctx, KindWorking, MemoryItem{Content: "p"}); err != nil {
 		t.Errorf("Add: %v", err)
 	}
-	if _, err := mgr.Search(ctx, coremem.KindWorking, "p", 5); err != nil {
+	if _, err := mgr.Search(ctx, KindWorking, "p", 5); err != nil {
 		t.Errorf("Search: %v", err)
 	}
 	if _, err := mgr.SearchAll(ctx, "p", 5); err != nil {
 		t.Errorf("SearchAll: %v", err)
 	}
-	if _, err := mgr.ListAll(ctx, coremem.ListFilter{}, 10, nil); err != nil {
+	if _, err := mgr.ListAll(ctx, ListFilter{}, 10, nil); err != nil {
 		t.Errorf("ListAll: %v", err)
 	}
 	if got := mgr.StatsAll(); len(got) != 3 {
@@ -489,10 +487,10 @@ func TestManager_ParityWithCoreManager_MethodMatrix(t *testing.T) {
 	if _, err := mgr.ImportAll(ctx, map[Kind]Snapshot{}, "", ImportMerge); err != nil {
 		t.Errorf("ImportAll(empty): %v", err)
 	}
-	if _, err := mgr.Consolidate(ctx, coremem.ConsolidateOptions{}); !errors.Is(err, ErrCapabilityMissing) {
+	if _, err := mgr.Consolidate(ctx, ConsolidateOptions{}); !errors.Is(err, ErrCapabilityMissing) {
 		t.Errorf("Consolidate without Lifecycle: err = %v, want ErrCapabilityMissing", err)
 	}
-	if _, err := mgr.Forget(ctx, coremem.KindWorking, coremem.ForgetOptions{Strategy: coremem.ForgetByImportance, Threshold: 0.1}); !errors.Is(err, ErrCapabilityMissing) {
+	if _, err := mgr.Forget(ctx, KindWorking, ForgetOptions{Strategy: ForgetByImportance, Threshold: 0.1}); !errors.Is(err, ErrCapabilityMissing) {
 		t.Errorf("Forget without Lifecycle: err = %v, want ErrCapabilityMissing", err)
 	}
 }

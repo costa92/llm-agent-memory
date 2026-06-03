@@ -5,8 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"sync"
-
-	coremem "github.com/costa92/llm-agent/memory"
 )
 
 // Deprecated: prefer RecallEngine.Recall (v1.0.0). ParallelSearcher
@@ -93,7 +91,7 @@ func (p *ParallelSearcher) SearchAllParallel(ctx context.Context, query string, 
 
 	out := make(map[Kind][]SearchResult, len(kinds))
 	for r := range ch {
-		if errors.Is(r.err, coremem.ErrKindDisabled) {
+		if errors.Is(r.err, ErrKindDisabled) {
 			continue
 		}
 		if r.err != nil {

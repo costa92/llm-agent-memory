@@ -8,26 +8,25 @@ import (
 	"sync"
 	"time"
 
-	"github.com/costa92/llm-agent/llm"
-	coremem "github.com/costa92/llm-agent/memory"
+	contractmem "github.com/costa92/llm-agent-contract/memory"
 )
 
 var (
-	ErrNotFound         = coremem.ErrNotFound
-	ErrEmptyQuery       = coremem.ErrEmptyQuery
-	ErrEmbedderRequired = coremem.ErrEmbedderRequired
+	ErrNotFound         = contractmem.ErrNotFound
+	ErrEmptyQuery       = contractmem.ErrEmptyQuery
+	ErrEmbedderRequired = contractmem.ErrEmbedderRequired
 )
 
 type scoredStore struct {
 	mu       sync.RWMutex
 	items    map[string]MemoryItem
 	vectors  map[string][]float32
-	embedder llm.Embedder
+	embedder Embedder
 	prefix   string
 	seq      int
 }
 
-func newScoredStore(prefix string, e llm.Embedder) *scoredStore {
+func newScoredStore(prefix string, e Embedder) *scoredStore {
 	return &scoredStore{
 		items:    make(map[string]MemoryItem),
 		vectors:  make(map[string][]float32),
@@ -240,7 +239,7 @@ func splitTokens(s string) []string {
 	return out
 }
 
-func queryEmbedding(ctx context.Context, e llm.Embedder, query string) ([]float32, error) {
+func queryEmbedding(ctx context.Context, e Embedder, query string) ([]float32, error) {
 	vectors, _, err := e.Embed(ctx, []string{query})
 	if err != nil {
 		return nil, err

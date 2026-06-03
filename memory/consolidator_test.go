@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"testing"
-
-	coremem "github.com/costa92/llm-agent/memory"
 )
 
 func TestConsolidator_FirstPromote_WritesDedupeMetadata(t *testing.T) {
@@ -24,14 +22,14 @@ func TestConsolidator_FirstPromote_WritesDedupeMetadata(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	id, err := mgr.Add(ctx, coremem.KindWorking, MemoryItem{
+	id, err := mgr.Add(ctx, KindWorking, MemoryItem{
 		Content: "important note", Importance: 0.9,
 	})
 	if err != nil {
 		t.Fatalf("Add: %v", err)
 	}
 
-	n, err := c.Consolidate(ctx, coremem.ConsolidateOptions{Threshold: 0.7})
+	n, err := c.Consolidate(ctx, ConsolidateOptions{Threshold: 0.7})
 	if err != nil {
 		t.Fatalf("Consolidate: %v", err)
 	}
@@ -40,7 +38,7 @@ func TestConsolidator_FirstPromote_WritesDedupeMetadata(t *testing.T) {
 	}
 
 	// Source item must now carry the dedupe metadata keys.
-	src, err := mgr.Get(ctx, coremem.KindWorking, id)
+	src, err := mgr.Get(ctx, KindWorking, id)
 	if err != nil {
 		t.Fatalf("Get source: %v", err)
 	}
@@ -52,8 +50,8 @@ func TestConsolidator_FirstPromote_WritesDedupeMetadata(t *testing.T) {
 	}
 
 	// The episodic clone must carry the back-reference.
-	pages, _ := mgr.ListAll(ctx, coremem.ListFilter{}, 100, nil)
-	epi := pages[coremem.KindEpisodic].Items
+	pages, _ := mgr.ListAll(ctx, ListFilter{}, 100, nil)
+	epi := pages[KindEpisodic].Items
 	if len(epi) != 1 {
 		t.Fatalf("episodic count = %d, want 1", len(epi))
 	}
@@ -78,13 +76,13 @@ func TestConsolidator_SecondCall_DoesNotRePromote(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	if _, err := mgr.Add(ctx, coremem.KindWorking, MemoryItem{
+	if _, err := mgr.Add(ctx, KindWorking, MemoryItem{
 		Content: "promote me once", Importance: 0.9,
 	}); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
 
-	n1, err := c.Consolidate(ctx, coremem.ConsolidateOptions{Threshold: 0.7})
+	n1, err := c.Consolidate(ctx, ConsolidateOptions{Threshold: 0.7})
 	if err != nil {
 		t.Fatalf("Consolidate #1: %v", err)
 	}
@@ -92,7 +90,7 @@ func TestConsolidator_SecondCall_DoesNotRePromote(t *testing.T) {
 		t.Fatalf("Consolidate #1 promoted = %d, want 1", n1)
 	}
 
-	n2, err := c.Consolidate(ctx, coremem.ConsolidateOptions{Threshold: 0.7})
+	n2, err := c.Consolidate(ctx, ConsolidateOptions{Threshold: 0.7})
 	if err != nil {
 		t.Fatalf("Consolidate #2: %v", err)
 	}
@@ -101,8 +99,8 @@ func TestConsolidator_SecondCall_DoesNotRePromote(t *testing.T) {
 	}
 
 	// Episodic must still hold exactly one copy.
-	pages, _ := mgr.ListAll(ctx, coremem.ListFilter{}, 100, nil)
-	if got := len(pages[coremem.KindEpisodic].Items); got != 1 {
+	pages, _ := mgr.ListAll(ctx, ListFilter{}, 100, nil)
+	if got := len(pages[KindEpisodic].Items); got != 1 {
 		t.Errorf("episodic count = %d, want 1 (no duplicate)", got)
 	}
 }
@@ -126,12 +124,12 @@ func TestConsolidator_DedupeMetadata_RoundTripsThroughExportImport(t *testing.T)
 	}
 
 	ctx := context.Background()
-	if _, err := mgrA.Add(ctx, coremem.KindWorking, MemoryItem{
+	if _, err := mgrA.Add(ctx, KindWorking, MemoryItem{
 		Content: "ride-along", Importance: 0.9,
 	}); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
-	if _, err := c.Consolidate(ctx, coremem.ConsolidateOptions{Threshold: 0.7}); err != nil {
+	if _, err := c.Consolidate(ctx, ConsolidateOptions{Threshold: 0.7}); err != nil {
 		t.Fatalf("Consolidate: %v", err)
 	}
 
@@ -139,7 +137,7 @@ func TestConsolidator_DedupeMetadata_RoundTripsThroughExportImport(t *testing.T)
 	if err != nil {
 		t.Fatalf("ExportAll: %v", err)
 	}
-	workingSnap, ok := snaps[coremem.KindWorking]
+	workingSnap, ok := snaps[KindWorking]
 	if !ok {
 		t.Fatalf("working snapshot missing")
 	}
@@ -163,8 +161,8 @@ func TestConsolidator_DedupeMetadata_RoundTripsThroughExportImport(t *testing.T)
 	if err != nil {
 		t.Fatalf("ImportAll: %v", err)
 	}
-	if rpt[coremem.KindWorking].Loaded != 1 {
-		t.Fatalf("Loaded = %d, want 1", rpt[coremem.KindWorking].Loaded)
+	if rpt[KindWorking].Loaded != 1 {
+		t.Fatalf("Loaded = %d, want 1", rpt[KindWorking].Loaded)
 	}
 
 	// Re-run Consolidate on mgr B — must be a no-op because the
@@ -173,7 +171,7 @@ func TestConsolidator_DedupeMetadata_RoundTripsThroughExportImport(t *testing.T)
 	if err != nil {
 		t.Fatalf("NewConsolidator B: %v", err)
 	}
-	n, err := cB.Consolidate(ctx, coremem.ConsolidateOptions{Threshold: 0.7})
+	n, err := cB.Consolidate(ctx, ConsolidateOptions{Threshold: 0.7})
 	if err != nil {
 		t.Fatalf("Consolidate B: %v", err)
 	}
@@ -200,7 +198,7 @@ func TestConsolidator_Consolidate_PagesThroughLargeWorkingSet(t *testing.T) {
 	ctx := context.Background()
 	const total = 175
 	for i := 0; i < total; i++ {
-		if _, err := mgr.Add(ctx, coremem.KindWorking, MemoryItem{
+		if _, err := mgr.Add(ctx, KindWorking, MemoryItem{
 			Content:    fmt.Sprintf("paged-%03d", i),
 			Importance: 0.9,
 		}); err != nil {
@@ -208,7 +206,7 @@ func TestConsolidator_Consolidate_PagesThroughLargeWorkingSet(t *testing.T) {
 		}
 	}
 
-	n, err := c.Consolidate(ctx, coremem.ConsolidateOptions{Threshold: 0.7})
+	n, err := c.Consolidate(ctx, ConsolidateOptions{Threshold: 0.7})
 	if err != nil {
 		t.Fatalf("Consolidate: %v", err)
 	}
@@ -234,14 +232,14 @@ func TestConsolidator_Consolidate_EmitsConsolidatedTotalEvent(t *testing.T) {
 	}
 	ctx := context.Background()
 	inner := c.mgr
-	if _, err := inner.Add(ctx, coremem.KindWorking, MemoryItem{Content: "x", Importance: 0.9}); err != nil {
+	if _, err := inner.Add(ctx, KindWorking, MemoryItem{Content: "x", Importance: 0.9}); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
-	if _, err := inner.Add(ctx, coremem.KindWorking, MemoryItem{Content: "y", Importance: 0.9}); err != nil {
+	if _, err := inner.Add(ctx, KindWorking, MemoryItem{Content: "y", Importance: 0.9}); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
 
-	if _, err := c.Consolidate(ctx, coremem.ConsolidateOptions{Threshold: 0.7}); err != nil {
+	if _, err := c.Consolidate(ctx, ConsolidateOptions{Threshold: 0.7}); err != nil {
 		t.Fatalf("Consolidate: %v", err)
 	}
 
@@ -277,13 +275,13 @@ func TestConsolidator_Consolidate_EmitsAddTotalPerPromotion(t *testing.T) {
 		t.Fatalf("NewConsolidator: %v", err)
 	}
 	ctx := context.Background()
-	if _, err := mgr.Add(ctx, coremem.KindWorking, MemoryItem{Content: "p1", Importance: 0.9}); err != nil {
+	if _, err := mgr.Add(ctx, KindWorking, MemoryItem{Content: "p1", Importance: 0.9}); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
-	if _, err := mgr.Add(ctx, coremem.KindWorking, MemoryItem{Content: "p2", Importance: 0.9}); err != nil {
+	if _, err := mgr.Add(ctx, KindWorking, MemoryItem{Content: "p2", Importance: 0.9}); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
-	if _, err := c.Consolidate(ctx, coremem.ConsolidateOptions{Threshold: 0.7}); err != nil {
+	if _, err := c.Consolidate(ctx, ConsolidateOptions{Threshold: 0.7}); err != nil {
 		t.Fatalf("Consolidate: %v", err)
 	}
 
@@ -291,8 +289,8 @@ func TestConsolidator_Consolidate_EmitsAddTotalPerPromotion(t *testing.T) {
 	for _, e := range rec.snapshot() {
 		if e.Name == EventAddTotal {
 			addCount++
-			if k, _ := e.Attrs["kind"].(coremem.Kind); k != coremem.KindEpisodic {
-				t.Errorf("EventAddTotal kind = %v, want %v", e.Attrs["kind"], coremem.KindEpisodic)
+			if k, _ := e.Attrs["kind"].(Kind); k != KindEpisodic {
+				t.Errorf("EventAddTotal kind = %v, want %v", e.Attrs["kind"], KindEpisodic)
 			}
 		}
 	}
@@ -317,7 +315,7 @@ func TestConsolidator_ExportAll_EmitsSnapshotItemsAndVectorBytes(t *testing.T) {
 		t.Fatalf("NewConsolidator: %v", err)
 	}
 	ctx := context.Background()
-	if _, err := mgr.Add(ctx, coremem.KindEpisodic, MemoryItem{Content: "snap-me", Importance: 0.5}); err != nil {
+	if _, err := mgr.Add(ctx, KindEpisodic, MemoryItem{Content: "snap-me", Importance: 0.5}); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
 
@@ -325,19 +323,19 @@ func TestConsolidator_ExportAll_EmitsSnapshotItemsAndVectorBytes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ExportAll: %v", err)
 	}
-	if len(snaps[coremem.KindEpisodic].Items) != 1 {
-		t.Fatalf("expected 1 episodic snapshot item, got %d", len(snaps[coremem.KindEpisodic].Items))
+	if len(snaps[KindEpisodic].Items) != 1 {
+		t.Fatalf("expected 1 episodic snapshot item, got %d", len(snaps[KindEpisodic].Items))
 	}
 
 	var items, bytes *Event
 	for _, e := range rec.snapshot() {
 		switch e.Name {
 		case EventSnapshotItems:
-			if k, _ := e.Attrs["kind"].(coremem.Kind); k == coremem.KindEpisodic {
+			if k, _ := e.Attrs["kind"].(Kind); k == KindEpisodic {
 				items = &e
 			}
 		case EventSnapshotVectorsBytes:
-			if k, _ := e.Attrs["kind"].(coremem.Kind); k == coremem.KindEpisodic {
+			if k, _ := e.Attrs["kind"].(Kind); k == KindEpisodic {
 				bytes = &e
 			}
 		}

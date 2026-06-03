@@ -5,14 +5,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/costa92/llm-agent/llm"
-	coremem "github.com/costa92/llm-agent/memory"
+	"github.com/costa92/llm-agent-contract/llm"
 )
 
 // newCoreEmbedder returns a deterministic ScriptedLLM embedder with
-// 64-dim vectors — matches the pattern in
-// github.com/costa92/llm-agent/memory/memory_test.go newWorking.
-func newCoreEmbedder() coremem.Embedder {
+// 64-dim vectors. The name is retained for the local-engine test
+// suites that reference it; it returns the local (contract-backed)
+// Embedder.
+func newCoreEmbedder() Embedder {
 	return llm.NewScriptedLLM(llm.WithEmbedDimensions(64))
 }
 
@@ -69,43 +69,6 @@ func newWorkingWithCapacity(t *testing.T, capacity int) *WorkingMemory {
 	return w
 }
 
-// coreWorkingForAdapter builds a *coremem.WorkingMemory with capacity 16
-// and a 24h decay window. It exists for the few tests that must exercise
-// the core adapter bridge (AdaptCoreMemory / coremem.WithSanitizer); those
-// tests still need a genuine core memory to wrap. Capacity is generous so
-// eviction is not triggered by the small test corpora.
-func coreWorkingForAdapter(t *testing.T) *coremem.WorkingMemory {
-	t.Helper()
-	w, err := coremem.NewWorking(newCoreEmbedder(), coremem.WorkingOptions{
-		Capacity: 16,
-		Decay:    24 * time.Hour,
-	})
-	if err != nil {
-		t.Fatalf("coremem.NewWorking: %v", err)
-	}
-	return w
-}
-
-// newCoreEpisodic builds a *coremem.EpisodicMemory with default options.
-func newCoreEpisodic(t *testing.T) *coremem.EpisodicMemory {
-	t.Helper()
-	m, err := coremem.NewEpisodic(newCoreEmbedder(), coremem.EpisodicOptions{})
-	if err != nil {
-		t.Fatalf("coremem.NewEpisodic: %v", err)
-	}
-	return m
-}
-
-// newCoreSemantic builds a *coremem.SemanticMemory with default options.
-func newCoreSemantic(t *testing.T) *coremem.SemanticMemory {
-	t.Helper()
-	m, err := coremem.NewSemantic(newCoreEmbedder(), coremem.SemanticOptions{})
-	if err != nil {
-		t.Fatalf("coremem.NewSemantic: %v", err)
-	}
-	return m
-}
-
 func newScopedManager(t *testing.T) *ScopedManager {
 	t.Helper()
 	w, e, s := newWorking(t), newEpisodic(t), newSemantic(t)
@@ -122,21 +85,6 @@ func newScopedManager(t *testing.T) *ScopedManager {
 		t.Fatalf("NewScopedManager: %v", err)
 	}
 	return sm
-}
-
-// newCoreWorkingWithCapacity builds a *coremem.WorkingMemory with the
-// requested capacity (24h decay). Use this in pagination tests where the
-// default capacity of 16 from newCoreWorking is too small.
-func newCoreWorkingWithCapacity(t *testing.T, capacity int) *coremem.WorkingMemory {
-	t.Helper()
-	w, err := coremem.NewWorking(newCoreEmbedder(), coremem.WorkingOptions{
-		Capacity: capacity,
-		Decay:    24 * time.Hour,
-	})
-	if err != nil {
-		t.Fatalf("coremem.NewWorking(cap=%d): %v", capacity, err)
-	}
-	return w
 }
 
 // jsonRoundTripSnap encodes then decodes a Snapshot through

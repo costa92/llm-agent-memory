@@ -5,8 +5,6 @@ import (
 	"math"
 	"sort"
 	"testing"
-
-	coremem "github.com/costa92/llm-agent/memory"
 )
 
 func TestParallelSearcher_SearchAllParallel_MatchesCoreSearchAll(t *testing.T) {
@@ -24,13 +22,13 @@ func TestParallelSearcher_SearchAllParallel_MatchesCoreSearchAll(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	if _, err := mgr.Add(ctx, coremem.KindWorking, MemoryItem{Content: "alpha", Importance: 0.5}); err != nil {
+	if _, err := mgr.Add(ctx, KindWorking, MemoryItem{Content: "alpha", Importance: 0.5}); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
-	if _, err := mgr.Add(ctx, coremem.KindEpisodic, MemoryItem{Content: "alpha", Importance: 0.5}); err != nil {
+	if _, err := mgr.Add(ctx, KindEpisodic, MemoryItem{Content: "alpha", Importance: 0.5}); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
-	if _, err := mgr.Add(ctx, coremem.KindSemantic, MemoryItem{Content: "alpha-guide", Tags: []string{"a"}, Importance: 0.5}); err != nil {
+	if _, err := mgr.Add(ctx, KindSemantic, MemoryItem{Content: "alpha-guide", Tags: []string{"a"}, Importance: 0.5}); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
 
@@ -117,7 +115,7 @@ func TestParallelSearcher_SearchAllParallel_SurfacesPerKindError(t *testing.T) {
 	//
 	// Verify SearchAllParallel surfaces a real per-kind error rather
 	// than silently dropping it. We use an empty query, which makes
-	// every active kind return coremem.ErrEmptyQuery — a reproducible
+	// every active kind return ErrEmptyQuery — a reproducible
 	// real failure path (no shim required, since coremem.Manager only
 	// accepts the concrete *EpisodicMemory / *WorkingMemory / *SemanticMemory
 	// types and cannot be wired with a Memory-interface mock).

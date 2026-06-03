@@ -6,8 +6,6 @@ import (
 	"os"
 	"testing"
 	"time"
-
-	coremem "github.com/costa92/llm-agent/memory"
 )
 
 // TestSQLiteStore_SatisfiesSnapshotStore is a compile-time + runtime
@@ -33,7 +31,7 @@ func TestSQLiteStore_Save_Load_RoundTripsSingleKind(t *testing.T) {
 	ctx := context.Background()
 	snap := Snapshot{
 		Version: SnapshotVersion,
-		Kind:    coremem.KindEpisodic,
+		Kind:    KindEpisodic,
 		Items: []SnapshotItem{
 			{
 				Item: MemoryItem{
@@ -66,20 +64,20 @@ func TestSQLiteStore_LoadKind_SelectsExactKind(t *testing.T) {
 			},
 		}
 	}
-	if err := store.Save(ctx, "k", mk(coremem.KindWorking, "w")); err != nil {
+	if err := store.Save(ctx, "k", mk(KindWorking, "w")); err != nil {
 		t.Fatalf("Save working: %v", err)
 	}
-	if err := store.Save(ctx, "k", mk(coremem.KindEpisodic, "e")); err != nil {
+	if err := store.Save(ctx, "k", mk(KindEpisodic, "e")); err != nil {
 		t.Fatalf("Save episodic: %v", err)
 	}
-	wsnap, err := store.LoadKind(ctx, "k", coremem.KindWorking)
+	wsnap, err := store.LoadKind(ctx, "k", KindWorking)
 	if err != nil {
 		t.Fatalf("LoadKind working: %v", err)
 	}
 	if wsnap.Items[0].Item.Content != "w" {
 		t.Errorf("LoadKind working Content = %q, want %q", wsnap.Items[0].Item.Content, "w")
 	}
-	esnap, err := store.LoadKind(ctx, "k", coremem.KindEpisodic)
+	esnap, err := store.LoadKind(ctx, "k", KindEpisodic)
 	if err != nil {
 		t.Fatalf("LoadKind episodic: %v", err)
 	}
@@ -90,7 +88,7 @@ func TestSQLiteStore_LoadKind_SelectsExactKind(t *testing.T) {
 
 func TestSQLiteStore_LoadKind_MissingReturnsErrNotExist(t *testing.T) {
 	store := newTempSQLiteStore(t)
-	_, err := store.LoadKind(context.Background(), "missing", coremem.KindWorking)
+	_, err := store.LoadKind(context.Background(), "missing", KindWorking)
 	if !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("LoadKind missing err = %v, want wraps os.ErrNotExist", err)
 	}
@@ -99,7 +97,7 @@ func TestSQLiteStore_LoadKind_MissingReturnsErrNotExist(t *testing.T) {
 func TestSQLiteStore_Delete_RemovesAllKindsAtKey(t *testing.T) {
 	store := newTempSQLiteStore(t)
 	ctx := context.Background()
-	for _, kind := range []coremem.Kind{coremem.KindWorking, coremem.KindEpisodic} {
+	for _, kind := range []Kind{KindWorking, KindEpisodic} {
 		if err := store.Save(ctx, "k", Snapshot{
 			Version: SnapshotVersion,
 			Kind:    kind,
@@ -111,10 +109,10 @@ func TestSQLiteStore_Delete_RemovesAllKindsAtKey(t *testing.T) {
 	if err := store.Delete(ctx, "k"); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
-	if _, err := store.LoadKind(ctx, "k", coremem.KindWorking); !errors.Is(err, os.ErrNotExist) {
+	if _, err := store.LoadKind(ctx, "k", KindWorking); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("LoadKind working post-delete err = %v, want os.ErrNotExist", err)
 	}
-	if _, err := store.LoadKind(ctx, "k", coremem.KindEpisodic); !errors.Is(err, os.ErrNotExist) {
+	if _, err := store.LoadKind(ctx, "k", KindEpisodic); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("LoadKind episodic post-delete err = %v, want os.ErrNotExist", err)
 	}
 }
@@ -126,7 +124,7 @@ func TestSQLiteStore_List_ReturnsSortedUniqueKeys(t *testing.T) {
 	for _, k := range keys {
 		if err := store.Save(ctx, k, Snapshot{
 			Version: SnapshotVersion,
-			Kind:    coremem.KindWorking,
+			Kind:    KindWorking,
 			Items:   []SnapshotItem{{Item: MemoryItem{ID: "x"}, Vector: []float32{1}}},
 		}); err != nil {
 			t.Fatalf("Save %q: %v", k, err)
@@ -135,7 +133,7 @@ func TestSQLiteStore_List_ReturnsSortedUniqueKeys(t *testing.T) {
 	// Save same key with a different kind — must not duplicate in List.
 	if err := store.Save(ctx, "alpha", Snapshot{
 		Version: SnapshotVersion,
-		Kind:    coremem.KindEpisodic,
+		Kind:    KindEpisodic,
 		Items:   []SnapshotItem{{Item: MemoryItem{ID: "x"}, Vector: []float32{1}}},
 	}); err != nil {
 		t.Fatalf("Save alpha episodic: %v", err)
@@ -160,12 +158,12 @@ func TestSQLiteStore_Save_OnConflict_OverwritesExistingRow(t *testing.T) {
 	ctx := context.Background()
 	snap1 := Snapshot{
 		Version: SnapshotVersion,
-		Kind:    coremem.KindWorking,
+		Kind:    KindWorking,
 		Items:   []SnapshotItem{{Item: MemoryItem{ID: "a", Content: "v1"}, Vector: []float32{1}}},
 	}
 	snap2 := Snapshot{
 		Version: SnapshotVersion,
-		Kind:    coremem.KindWorking,
+		Kind:    KindWorking,
 		Items:   []SnapshotItem{{Item: MemoryItem{ID: "a", Content: "v2"}, Vector: []float32{2}}},
 	}
 	if err := store.Save(ctx, "k", snap1); err != nil {
@@ -174,7 +172,7 @@ func TestSQLiteStore_Save_OnConflict_OverwritesExistingRow(t *testing.T) {
 	if err := store.Save(ctx, "k", snap2); err != nil {
 		t.Fatalf("Save v2: %v", err)
 	}
-	got, err := store.LoadKind(ctx, "k", coremem.KindWorking)
+	got, err := store.LoadKind(ctx, "k", KindWorking)
 	if err != nil {
 		t.Fatalf("LoadKind: %v", err)
 	}
@@ -271,7 +269,7 @@ func TestSQLiteStore_Save_ConcurrentSameKey_SerializesCleanly(t *testing.T) {
 			for i := 0; i < writesPerGoroutine; i++ {
 				snap := Snapshot{
 					Version: SnapshotVersion,
-					Kind:    coremem.KindWorking,
+					Kind:    KindWorking,
 					Items: []SnapshotItem{
 						{Item: MemoryItem{ID: "x", Content: "w"}, Vector: []float32{1}},
 					},
@@ -295,7 +293,7 @@ func TestSQLiteStore_Save_ConcurrentSameKey_SerializesCleanly(t *testing.T) {
 	var n int
 	if err := store.db.QueryRowContext(ctx,
 		`SELECT COUNT(*) FROM memory_snapshots WHERE key = ? AND kind = ?`,
-		"race-key", string(coremem.KindWorking),
+		"race-key", string(KindWorking),
 	).Scan(&n); err != nil {
 		t.Fatalf("count: %v", err)
 	}
@@ -323,13 +321,13 @@ func TestSQLiteStore_RoundTripsThroughSiblingExportAllImportAll(t *testing.T) {
 
 	ctx := context.Background()
 	// Seed every active kind so all three snapshots round-trip.
-	if _, err := mgr.Add(ctx, coremem.KindWorking, MemoryItem{Content: "w1", Importance: 0.3}); err != nil {
+	if _, err := mgr.Add(ctx, KindWorking, MemoryItem{Content: "w1", Importance: 0.3}); err != nil {
 		t.Fatalf("Add working: %v", err)
 	}
-	if _, err := mgr.Add(ctx, coremem.KindEpisodic, MemoryItem{Content: "e1", Importance: 0.5}); err != nil {
+	if _, err := mgr.Add(ctx, KindEpisodic, MemoryItem{Content: "e1", Importance: 0.5}); err != nil {
 		t.Fatalf("Add episodic: %v", err)
 	}
-	if _, err := mgr.Add(ctx, coremem.KindSemantic, MemoryItem{Content: "s1", Tags: []string{"tag"}, Importance: 0.7}); err != nil {
+	if _, err := mgr.Add(ctx, KindSemantic, MemoryItem{Content: "s1", Tags: []string{"tag"}, Importance: 0.7}); err != nil {
 		t.Fatalf("Add semantic: %v", err)
 	}
 
@@ -368,7 +366,7 @@ func TestSQLiteStore_RoundTripsThroughSiblingExportAllImportAll(t *testing.T) {
 	}
 
 	// Confirm the restored manager Search returns the expected content.
-	hits, err := mgr2.Search(ctx, coremem.KindEpisodic, "e1", 5)
+	hits, err := mgr2.Search(ctx, KindEpisodic, "e1", 5)
 	if err != nil {
 		t.Fatalf("Search episodic: %v", err)
 	}

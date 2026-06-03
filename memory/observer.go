@@ -119,17 +119,12 @@ func newConfig(opts []Option) *config {
 }
 
 // B2Status documents the Phase B-2 optimization status. The optimization
-// (reuse the Working.Add embedding inside evictIfOverCapacity) lives
-// inside coremem.WorkingMemory's private call site
-// (llm-agent/memory/working.go:56-63 and 179-185) and cannot be applied
-// from this sibling without modifying core. This package therefore
-// tracks B-2 as deferred to an upstream PR.
+// (reuse the Working.Add embedding inside the native WorkingMemory's
+// evictIfOverCapacity rather than re-embedding the probe) is tracked as
+// deferred.
 //
 // The observable property B-2 promises to preserve — capacity-full
 // eviction picks the lowest-scored item — is pinned by the regression
-// test TestObserver_B2_WorkingEvictionStillPicksLowestScoredItem so
-// the eventual upstream PR cannot cause a silent regression.
-//
-// Status: pending upstream issue at github.com/costa92/llm-agent
-// referencing working.go:56-63. File the issue at M2 kick-off.
+// test TestObserver_B2_WorkingEvictionStillPicksLowestScoredItem so a
+// future optimization cannot cause a silent regression.
 const B2Status = "deferred-to-core"
