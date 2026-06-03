@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/costa92/llm-agent/llm"
+	"github.com/costa92/llm-agent-contract/llm"
 	coremem "github.com/costa92/llm-agent/memory"
 )
 
