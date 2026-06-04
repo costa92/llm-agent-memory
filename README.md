@@ -1,3 +1,5 @@
+[English](./README.md) | [简体中文](./README.zh-CN.md)
+
 # llm-agent-memory
 
 Sibling Go module under the `llm-agent-ecosystem` umbrella. Builds the
